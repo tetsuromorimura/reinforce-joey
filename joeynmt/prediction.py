@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # pylint: disable=too-many-arguments,too-many-locals,no-member
 def validate_on_data(model: Model, data: Dataset,
                      batch_size: int,
+                     config: dict,
                      use_cuda: bool, max_output_length: int,
                      level: str, eval_metric: Optional[str],
                      n_gpu: int,
@@ -35,7 +36,8 @@ def validate_on_data(model: Model, data: Dataset,
                      batch_type: str = "sentence",
                      postprocess: bool = True,
                      bpe_type: str = "subword-nmt",
-                     sacrebleu: dict = None) \
+                     sacrebleu: dict = None,
+                     critic: Model = None) \
         -> (float, float, float, List[str], List[List[str]], List[str],
             List[str], List[List[str]], List[np.array]):
     """
@@ -88,15 +90,28 @@ def validate_on_data(model: Model, data: Dataset,
     valid_sources_raw = data.src
     pad_index = model.src_vocab.stoi[PAD_TOKEN]
     # disable dropout
+
+    # reinforcement learnin parameters
+    method = config["training"]["reinforcement_learning"]["method"]
+    samples = config["training"]["reinforcement_learning"]["hyperparameters"]["samples"]
+    alpha = config["training"]["reinforcement_learning"]["hyperparameters"]["alpha"]
+    reinforcement_learning = config["training"]["reinforcement_learning"]["use_reinforcement_learning"]
+    temperature = config["training"]["reinforcement_learning"]["hyperparameters"]["temperature"]
+    add_gold = config["training"]["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
+
     model.eval()
     # don't track gradients during validation
     with torch.no_grad():
+        valid_data = [[] for i in range(11)]
+        valid_data[0] = 0
+        entropy_divider = 0
         all_outputs = []
         valid_attention_scores = []
         total_loss = 0
         total_ntokens = 0
         total_nseqs = 0
         for valid_batch in iter(valid_iter):
+            entropy_divider+=1
             # run as during training to get validation loss (e.g. xent)
 
             batch = Batch(valid_batch, pad_index, use_cuda=use_cuda)
@@ -105,15 +120,48 @@ def validate_on_data(model: Model, data: Dataset,
 
             # run as during training with teacher forcing
             if compute_loss and batch.trg is not None:
-                batch_loss, _, _, _ = model(
-                    return_type="loss", src=batch.src, trg=batch.trg,
-                    trg_input=batch.trg_input, trg_mask=batch.trg_mask,
-                    src_mask=batch.src_mask, src_length=batch.src_length)
+                if reinforcement_learning: 
+                    if config["model"]["encoder"].get("type", "recurrent") == "transformer":
+                        batch_loss, distribution, _, _ = model(
+                                return_type="transformer_"+method, max_output_length=max_output_length, 
+                                batch=batch, temperature = temperature, 
+                                samples=samples, alpha = alpha, add_gold=add_gold)
+                    else:
+                        batch_loss, distribution, _, _ = model(
+                                return_type=method, max_output_length=max_output_length,
+                                batch=batch, temperature = temperature, 
+                                samples=samples, alpha = alpha, add_gold=add_gold,
+                                critic=critic)
+                    if method == "a2c":
+                        batch_loss = losses[0] 
+                        critic_loss = losses[1] 
+                else:
+                    batch_loss, _, _, _ = model(
+                        return_type="loss", src=batch.src, trg=batch.trg,
+                        trg_input=batch.trg_input, trg_mask=batch.trg_mask,
+                        src_mask=batch.src_mask, src_length=batch.src_length)
+
                 if n_gpu > 1:
                     batch_loss = batch_loss.mean() # average on multi-gpu
+                    if self.method == "a2c":
+                        critic_loss.mean()
                 total_loss += batch_loss
                 total_ntokens += batch.ntokens
                 total_nseqs += batch.nseqs
+
+                if reinforcement_learning:
+                    entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
+                    valid_data[0] += entropy
+                    valid_data[1].extend(gold_strings)
+                    valid_data[2].extend(predicted_strings)
+                    valid_data[3].extend(highest_words)
+                    valid_data[4].extend(total_probability)
+                    valid_data[5].extend(highest_word)
+                    valid_data[6].extend(highest_prob)
+                    valid_data[7].extend(gold_probabilities)
+                    valid_data[8].extend(gold_token_ranks)
+                    valid_data[9].append(rewards)
+                    valid_data[10].extend(old_bleus)
 
             # run as during inference to produce translations
             output, attention_scores = run_batch(
@@ -163,6 +211,7 @@ def validate_on_data(model: Model, data: Dataset,
             current_valid_score = 0
             if eval_metric.lower() == 'bleu':
                 # this version does not use any tokenization
+                print("screbleu ", sacrebleu)
                 current_valid_score = bleu(
                     valid_hypotheses, valid_references,
                     tokenize=sacrebleu["tokenize"])
@@ -177,10 +226,10 @@ def validate_on_data(model: Model, data: Dataset,
                     valid_hypotheses, valid_references)
         else:
             current_valid_score = -1
-
+    valid_data[0] = valid_data[0]/entropy_divider
     return current_valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
-        decoded_valid, valid_attention_scores
+        decoded_valid, valid_attention_scores, valid_data
 
 
 def parse_test_args(cfg, mode="test"):

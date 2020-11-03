@@ -10,6 +10,7 @@ import errno
 import shutil
 import random
 import logging
+from logging import Logger
 from typing import Optional, List
 import numpy as np
 import pkg_resources
@@ -45,6 +46,30 @@ def make_model_dir(model_dir: str, overwrite=False) -> str:
     os.makedirs(model_dir)
     return model_dir
 
+def make_retro_logger(log_file: str = None, name='logger') -> Logger:
+    """
+    Create a logger for logging the training/testing process.
+
+    :param log_file: path to file where log is stored as well
+    :return: logger object
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level=logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(message)s')
+
+    if log_file is not None:
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(level=logging.DEBUG)
+        logger.addHandler(fh)
+        fh.setFormatter(formatter)
+
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(formatter)
+
+    logging.getLogger("").addHandler(sh)
+    logger.info("Hello! This is Joey-NMT.")
+    return logger
 
 def make_logger(log_dir: str = None, mode: str = "train") -> str:
     """
@@ -55,8 +80,8 @@ def make_logger(log_dir: str = None, mode: str = "train") -> str:
     :return: joeynmt version number
     """
     logger = logging.getLogger("") # root logger
-    version = pkg_resources.require("joeynmt")[0].version
-
+    #version = pkg_resources.require("joeynmt")[0].version
+    version = 0 
     # add handlers only once.
     if len(logger.handlers) == 0:
         logger.setLevel(level=logging.DEBUG)

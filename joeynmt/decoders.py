@@ -431,6 +431,106 @@ class RecurrentDecoder(Decoder):
         return "RecurrentDecoder(rnn=%r, attention=%r)" % (
             self.rnn, self.attention)
 
+class CriticDecoder(Decoder):
+    """A conditional RNN decoder with attention."""
+
+    def __init__(self,
+                 rnn_type: str = "gru",
+                 emb_size: int = 0,
+                 hidden_size: int = 0,
+                 encoder: Encoder = None,
+                 attention: str = "bahdanau",
+                 num_layers: int = 1,
+                 vocab_size: int = 0,
+                 dropout: float = 0.,
+                 emb_dropout: float = 0.,
+                 hidden_dropout: float = 0.,
+                 init_hidden: str = "bridge",
+                 input_feeding: bool = True,
+                 freeze: bool = False,
+                 **kwargs) -> None:
+        """
+        Create a recurrent decoder with attention.
+
+        :param rnn_type: rnn type, valid options: "lstm", "gru"
+        :param emb_size: target embedding size
+        :param hidden_size: size of the RNN
+        :param encoder: encoder connected to this decoder
+        :param attention: type of attention, valid options: "bahdanau", "luong"
+        :param num_layers: number of recurrent layers
+        :param vocab_size: target vocabulary size
+        :param hidden_dropout: Is applied to the input to the attentional layer.
+        :param dropout: Is applied between RNN layers.
+        :param emb_dropout: Is applied to the RNN input (word embeddings).
+        :param init_hidden: If "bridge" (default), the decoder hidden states are
+            initialized from a projection of the last encoder state,
+            if "zeros" they are initialized with zeros,
+            if "last" they are identical to the last encoder state
+            (only if they have the same size)
+        :param input_feeding: Use Luong's input feeding.
+        :param freeze: Freeze the parameters of the decoder during training.
+        :param kwargs:
+        """
+
+        super(CriticDecoder, self).__init__()
+
+        self.emb_dropout = torch.nn.Dropout(p=emb_dropout, inplace=False)
+        self.type = rnn_type
+        self.hidden_dropout = torch.nn.Dropout(p=hidden_dropout, inplace=False)
+        self.hidden_size = hidden_size
+        self.emb_size = emb_size
+
+        rnn = nn.GRU if rnn_type == "gru" else nn.LSTM
+        self.input_feeding = input_feeding
+        if self.input_feeding: # Luong-style
+            # combine embedded prev word +attention vector before feeding to rnn
+            self.rnn_input_size = emb_size + hidden_size
+        else:
+            # just feed prev word embedding
+            self.rnn_input_size = emb_size
+
+        # the decoder RNN
+        self.rnn = rnn(self.rnn_input_size, hidden_size, num_layers,
+                       batch_first=True,
+                       dropout=dropout if num_layers > 1 else 0.)
+
+        # combine output with context vector before output layer (Luong-style)
+        self.att_vector_layer = nn.Linear(
+            hidden_size + encoder.output_size, hidden_size, bias=True)
+
+        self.output_layer = nn.Linear(hidden_size, 1, bias=False)
+        self._output_size = 1
+
+        if attention == "bahdanau":
+            self.attention = BahdanauAttention(hidden_size=hidden_size,
+                                               key_size=encoder.output_size,
+                                               query_size=hidden_size)
+        elif attention == "luong":
+            self.attention = LuongAttention(hidden_size=hidden_size,
+                                            key_size=encoder.output_size)
+        else:
+            raise ConfigurationError("Unknown attention mechanism: %s. "
+                                     "Valid options: 'bahdanau', 'luong'."
+                                     % attention)
+
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+
+        # to initialize from the final encoder state of last layer
+        self.init_hidden_option = init_hidden
+        if self.init_hidden_option == "bridge":
+            self.bridge_layer = nn.Linear(
+                encoder.output_size, hidden_size, bias=True)
+        elif self.init_hidden_option == "last":
+            if encoder.output_size != self.hidden_size:
+                if encoder.output_size != 2*self.hidden_size:  # bidirectional
+                    raise ConfigurationError(
+                        "For initializing the decoder state with the "
+                        "last encoder state, their sizes have to match "
+                        "(encoder: {} vs. decoder:  {})".format(
+                            encoder.output_size, self.hidden_size))
+        if freeze:
+            freeze_params(self)
 
 # pylint: disable=arguments-differ,too-many-arguments
 # pylint: disable=too-many-instance-attributes, unused-argument
