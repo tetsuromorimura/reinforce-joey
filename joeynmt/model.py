@@ -464,7 +464,7 @@ class Model(nn.Module):
                 sequence = torch.cat([sequence, sampled_word.view(-1, 1)], -1)
                 # get probability of gold token 
                 if _sample == samples-1:
-                    top100_probs, top100_probs_probs_index = probabilities.topk(50, largest=True, sorted=True)
+                    top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
                     if i < len(batch.trg.tolist()[0]):
                         # get ith column 
                         ith_column = batch.trg[:,i]
@@ -586,7 +586,7 @@ class Model(nn.Module):
                 distrib =  Categorical(logits = logits)
                 probabilities=distrib.probs
                 # get probability of gold token 
-                top100_probs, top100_probs_probs_index = probabilities.topk(40, largest=True, sorted=True)    
+                top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)    
                 if i < len(batch.trg.tolist()[0]):
                     # get ith column 
                     ith_column = batch.trg[:,i]

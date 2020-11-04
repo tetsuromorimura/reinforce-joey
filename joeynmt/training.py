@@ -12,6 +12,8 @@ import logging
 import os
 import sys
 import queue
+import pickle
+import json
 
 import numpy as np
 
@@ -684,7 +686,7 @@ class TrainManager:
                 tb_writer=self.tb_writer, steps=self.stats.steps)
 
         if self.reinforcement_learning == True:
-            self._log_reinforcement_learning(valid_logs)
+            self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
 
         return valid_duration
 
@@ -761,7 +763,7 @@ class TrainManager:
             logger.info("\tReference:  %s", references[p])
             logger.info("\tHypothesis: %s", hypotheses[p])
 
-    def _log_reinforcement_learning(self, valid_logs):
+    def _log_reinforcement_learning(self, valid_logs, epoch_no, valid_hypotheses):
         entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
                     
         self.reranking_logger.info(
