@@ -4,6 +4,7 @@ Module to represents whole models
 """
 from typing import Callable
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
@@ -14,6 +15,7 @@ from joeynmt.encoders import Encoder, RecurrentEncoder, TransformerEncoder
 from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder
 from joeynmt.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
 from joeynmt.vocabulary import Vocabulary
+from torch.distributions import Categorical
 from joeynmt.batch import Batch
 from joeynmt.helpers import ConfigurationError
 from joeynmt.metrics import bleu
@@ -108,11 +110,11 @@ class Model(nn.Module):
     def reinforce_transformer(self, max_output_length, batch: Batch, temperature: float) \
             -> Tensor:
         encoder_output, encoder_hidden = self._encode(
-            batch.src, batch.src_lengths,
+            batch.src, batch.src_length,
             batch.src_mask)
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
+            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
         batch_size = batch.src_mask.size(0)
         ys = encoder_output.new_full([batch_size, 1], batch.bos_index, dtype=torch.long)
         trg_mask = batch.src_mask.new_ones([1, 1, 1])
@@ -195,19 +197,19 @@ class Model(nn.Module):
                                                     cut_at_eos=True)
         predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
-        batch_loss, rewards, old_bleus = loss_function(predicted_strings, gold_strings, log_probs, top_words, ys, batch.trg)
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probs, top_words, ys, batch.trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
 
     def reinforce(self, max_output_length, batch: Batch, temperature: float) \
         -> Tensor:
 
         encoder_output, encoder_hidden = self._encode(
-            batch.src, batch.src_lengths,
+            batch.src, batch.src_length,
             batch.src_mask)
         
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
+            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
 
         batch_size = batch.src_mask.size(0)
         sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
@@ -285,7 +287,7 @@ class Model(nn.Module):
                                             cut_at_eos=True)
         predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
-        batch_loss, rewards, old_bleus = loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, batch.trg)
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, batch.trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
 
 
@@ -302,11 +304,11 @@ class Model(nn.Module):
 
         for i in range(samples):
             encoder_output, _ = self._encode(
-                batch.src, batch.src_lengths,
+                batch.src, batch.src_length,
                 batch.src_mask)
             # if maximum output length is not globally specified, adapt to src len
             if max_output_length is None:
-                max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
+                max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
             batch_size = batch.src_mask.size(0)
             ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
 
@@ -409,7 +411,7 @@ class Model(nn.Module):
         #batch_loss = loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, batch.trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, Qs_to_return, rewards]
 
-    def get_mrt_loss_for_batch(self, max_output_length, batch: Batch,  temperature: float, samples: int, alpha: float, add_gold=False) \
+    def mrt(self, max_output_length, batch: Batch,  temperature: float, samples: int, alpha: float, add_gold=False) \
                 -> Tensor:
         predicted_sentences = [] # collect all translations
         all_gold_sentences = []
@@ -420,11 +422,11 @@ class Model(nn.Module):
         all_targets = []
         all_sequences = []
         encoder_output, encoder_hidden = self._encode(
-                batch.src, batch.src_lengths,
+                batch.src, batch.src_length,
                 batch.src_mask)
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
+            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
         batch_size = batch.src_mask.size(0)
         for _sample in range(samples):
             sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
@@ -531,12 +533,12 @@ class Model(nn.Module):
     def a2c(self, max_output_length, batch: Batch, temperature: float, critic: nn.Module) \
             -> Tensor:
             encoder_output, encoder_hidden = self.encode(
-                batch.src, batch.src_lengths,
+                batch.src, batch.src_length,
                 batch.src_mask)
             
             # if maximum output length is not globally specified, adapt to src len
             if max_output_length is None:
-                max_output_length = int(max(batch.src_lengths.cpu().numpy()) * 1.5)
+                max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
 
             batch_size = batch.src_mask.size(0)
             sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
@@ -563,7 +565,7 @@ class Model(nn.Module):
             actor_log_probabs = []
             actor_samples = []
             critic_encoder_output, critic_encoder_hidden = critic._encode(
-                batch.src, batch.src_lengths,
+                batch.src, batch.src_length,
                 batch.src_mask)
             critic_logits = []
             critic_attention_vectors = None 
@@ -698,50 +700,50 @@ class Model(nn.Module):
             #     = sum over all elements in batch that are not pad
             return_tuple = (batch_loss, None, None, None)
 
-        if return_type == "reinforce_loss":
-            loss, logging = reinforce(
+        if return_type == "reinforce":
+            loss, logging = self.reinforce(
             max_output_length=kwargs["max_output_length"],
             batch=kwargs["batch"],
             temperature=kwargs["temperature"]
             )
-            return_tuple = (batch_loss, logging, None, None)
+            return_tuple = (loss, logging, None, None)
 
-        if return_type == "transformer_reinforce_loss":
-            loss, logging = reinforce_transformer(
+        if return_type == "transformer_reinforce":
+            loss, logging = self.reinforce_transformer(
             max_output_length=kwargs["max_output_length"],
             batch=kwargs["batch"],
             temperature=kwargs["temperature"]
             )
-            return_tuple = (batch_loss, logging, None, None)
+            return_tuple = (loss, logging, None, None)
 
-        if return_type == "mrt_loss":
-            loss, logging = mrt(
+        if return_type == "mrt":
+            loss, logging = self.mrt(
             max_output_length=kwargs["max_output_length"],
             batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             alpha=kwargs["alpha"],
             samples=kwargs["samples"]
             )
-            return_tuple = (batch_loss, logging, None, None)
+            return_tuple = (loss, logging, None, None)
 
-        if return_type == "transformer_mrt_loss":
-            loss, logging = mrt_transformer(
+        if return_type == "transformer_mrt":
+            loss, logging = self.mrt_transformer(
             max_output_length=kwargs["max_output_length"],
             batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             alpha=kwargs["alpha"],
             samples=kwargs["samples"]
             )
-            return_tuple = (batch_loss, logging, None, None)
+            return_tuple = (loss, logging, None, None)
 
-        if return_type == "a2c_loss":
-            loss, logging = a2c(
+        if return_type == "a2c":
+            loss, logging = self.a2c(
             max_output_length=kwargs["max_output_length"],
             batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             criic=critic["critic"]
             )
-            return_tuple = (batch_loss, logging, None, None)
+            return_tuple = (loss, logging, None, None)
 
         elif return_type == "encode":
             encoder_output, encoder_hidden = self._encode(
@@ -765,7 +767,7 @@ class Model(nn.Module):
 
             # return decoder outputs
             return_tuple = (outputs, hidden, att_probs, att_vectors)
-
+        print(return_tuple[0])
         return return_tuple
 
     # pylint: disable=arguments-differ

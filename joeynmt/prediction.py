@@ -140,7 +140,6 @@ def validate_on_data(model: Model, data: Dataset,
                         return_type="loss", src=batch.src, trg=batch.trg,
                         trg_input=batch.trg_input, trg_mask=batch.trg_mask,
                         src_mask=batch.src_mask, src_length=batch.src_length)
-
                 if n_gpu > 1:
                     batch_loss = batch_loss.mean() # average on multi-gpu
                     if self.method == "a2c":
