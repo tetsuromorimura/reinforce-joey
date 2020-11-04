@@ -169,7 +169,7 @@ class TrainManager:
         # eval options
         test_config = config["testing"]
         self.bpe_type = test_config.get("bpe_type", "subword-nmt")
-        self.sacrebleu = {"remove_whitespace": True, "tokenizer": "13a"}
+        self.sacrebleu = {"remove_whitespace": True, "tokenize": "13a"}
         if "sacrebleu" in config["testing"].keys():
             self.sacrebleu["remove_whitespace"] = test_config["sacrebleu"] \
                 .get("remove_whitespace", True)
@@ -423,7 +423,6 @@ class TrainManager:
 
             # validate before training begins
             if self.stats.steps % self.validation_freq == 0:
-
                 self._validate(valid_data, epoch_no)
                 
             self.model.train()
@@ -685,7 +684,7 @@ class TrainManager:
                 tb_writer=self.tb_writer, steps=self.stats.steps)
 
         if self.reinforcement_learning == True:
-            _log_reinforcement_learning(valid_logs)
+            self._log_reinforcement_learning(valid_logs)
 
         return valid_duration
 
