@@ -107,17 +107,18 @@ class Model(nn.Module):
     def join_strings(self, wordlist):
         return " ".join(wordlist).replace("@@ ", "")
 
-    def reinforce_transformer(self, max_output_length, batch: Batch, temperature: float) \
+    def reinforce_transformer(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                       src_length: Tensor, temperature: float) \
             -> Tensor:
         encoder_output, encoder_hidden = self._encode(
-            batch.src, batch.src_length,
-            batch.src_mask)
+            src, src_length,
+            src_mask)
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
-        batch_size = batch.src_mask.size(0)
-        ys = encoder_output.new_full([batch_size, 1], batch.bos_index, dtype=torch.long)
-        trg_mask = batch.src_mask.new_ones([1, 1, 1])
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        batch_size = src_mask.size(0)
+        ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
+        trg_mask = src_mask.new_ones([1, 1, 1])
         
         sentence_probability = [[] for i in range(batch_size)]
         sentence_highest_words = [[] for i in range(batch_size)]
@@ -127,19 +128,19 @@ class Model(nn.Module):
         gold_token_ranks = [[] for i in range(batch_size)]
 
         entropy = 0 
-        targets = batch.trg.tolist()
+        targets = trg.tolist()
         output = []
         top_words = []
         log_probs = 0
         distributions = []
 
-        finished = batch.src_mask.new_zeros((batch_size)).byte()
+        finished = src_mask.new_zeros((batch_size)).byte()
         for i in range(max_output_length):
             logits, out, _, _ = self.decoder(
                 trg_embed=self.trg_embed(ys),
                 encoder_output=encoder_output,
                 encoder_hidden=None,
-                src_mask=batch.src_mask,
+                src_mask=src_mask,
                 unroll_steps=None,
                 hidden=None,
                 trg_mask=trg_mask
@@ -151,9 +152,9 @@ class Model(nn.Module):
             
             top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
                     
-            if i < len(batch.trg.tolist()[0]):
+            if i < len(trg.tolist()[0]):
                 # get ith column 
-                ith_column = batch.trg[:,i]
+                ith_column = trg[:,i]
                 # incrementally update gold ranks in every step
                 for index, token in enumerate(ith_column.tolist()):
                     if token in top100_probs_probs_index.tolist()[index]:
@@ -193,26 +194,27 @@ class Model(nn.Module):
         ys = ys[:, 1:]
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
                                                         cut_at_eos=True)
-        gold_output = self.trg_vocab.arrays_to_sentences(arrays=batch.trg,
+        gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                     cut_at_eos=True)
         predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
-        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probs, top_words, ys, batch.trg)
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probs, top_words, ys, trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
 
-    def reinforce(self, max_output_length, batch: Batch, temperature: float) \
+    def reinforce(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                       src_length: Tensor, temperature: float) \
         -> Tensor:
 
         encoder_output, encoder_hidden = self._encode(
-            batch.src, batch.src_length,
-            batch.src_mask)
+            src, src_length,
+            src_mask)
         
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
 
-        batch_size = batch.src_mask.size(0)
-        sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
+        batch_size = src_mask.size(0)
+        sequence = src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
                                     dtype=torch.long)
         hidden = self.decoder._init_hidden(encoder_hidden)
         attention_vectors = None
@@ -226,7 +228,7 @@ class Model(nn.Module):
         gold_token_ranks = [[] for i in range(batch_size)]
 
         entropy = 0 
-        targets = batch.trg.tolist()
+        targets = trg.tolist()
         distributions = []
         top_words = [[] for i in range(batch_size)]
 
@@ -235,7 +237,7 @@ class Model(nn.Module):
             logits, hidden, attention_scores, attention_vectors = self.decoder(
                 encoder_output=encoder_output,
                 encoder_hidden=encoder_hidden,
-                src_mask=batch.src_mask,
+                src_mask=src_mask,
                 trg_embed=self.trg_embed(previous_words),
                 hidden=hidden,
                 prev_att_vector=attention_vectors,
@@ -248,9 +250,9 @@ class Model(nn.Module):
             # get probability of gold token 
             top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
                     
-            if i < len(batch.trg.tolist()[0]):
+            if i < len(trg.tolist()[0]):
                 # get ith column 
-                ith_column = batch.trg[:,i]
+                ith_column = trg[:,i]
                 # incrementally update gold ranks in every step
                 for index, token in enumerate(ith_column.tolist()):
                     if token in top100_probs_probs_index.tolist()[index]:
@@ -283,15 +285,16 @@ class Model(nn.Module):
 
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=sequence,
                                             cut_at_eos=True)
-        gold_output = self.trg_vocab.arrays_to_sentences(arrays=batch.trg,
+        gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                             cut_at_eos=True)
         predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
-        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, batch.trg)
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
 
 
-    def mrt_transformer(self, max_output_length, batch: Batch, temperature: float, samples: int, alpha: float, add_gold=False) \
+    def mrt_transformer(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                       src_length: Tensor, temperature: float, samples: int, alpha: float, add_gold=False) \
         -> Tensor:
         predicted_sentences = [] # collect all translations
         all_gold_sentences = []
@@ -304,12 +307,12 @@ class Model(nn.Module):
 
         for i in range(samples):
             encoder_output, _ = self._encode(
-                batch.src, batch.src_length,
-                batch.src_mask)
+                src, src_length,
+                src_mask)
             # if maximum output length is not globally specified, adapt to src len
             if max_output_length is None:
-                max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
-            batch_size = batch.src_mask.size(0)
+                max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+            batch_size = src_mask.size(0)
             ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
 
             sentence_probability = [[] for i in range(batch_size)]
@@ -320,8 +323,8 @@ class Model(nn.Module):
             gold_token_ranks = [[] for i in range(batch_size)]
 
             entropy = 0 
-            targets = batch.trg.tolist()
-            trg_mask = batch.src_mask.new_ones([1, 1, 1])
+            targets = trg.tolist()
+            trg_mask = src_mask.new_ones([1, 1, 1])
             top_words = []
             sample_distributions = []
             total_prob = 0
@@ -330,7 +333,7 @@ class Model(nn.Module):
                     trg_input=ys,
                     encoder_output=encoder_output,
                     encoder_hidden=None,
-                    src_mask=batch.src_mask,
+                    src_mask=src_mask,
                     unroll_steps=None,
                     decoder_hidden=None,
                     trg_mask=trg_mask
@@ -342,9 +345,9 @@ class Model(nn.Module):
                 # get probability of gold token 
                 if _sample == samples-1:
                     top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
-                    if i < len(batch.trg.tolist()[0]):
+                    if i < len(trg.tolist()[0]):
                         # get ith column 
-                        ith_column = batch.trg[:,i]
+                        ith_column = trg[:,i]
                         # incrementally update gold ranks in every step
                         for index, token in enumerate(ith_column.tolist()):
                             if token in top100_probs_probs_index.tolist()[index]:
@@ -382,7 +385,7 @@ class Model(nn.Module):
             ys = ys[:, 1:]
             predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
                                                             cut_at_eos=True)
-            gold_output = self.trg_vocab.arrays_to_sentences(arrays=batch.trg,
+            gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                         cut_at_eos=True)
             predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
             predicted_sentences.append(predicted_strings)
@@ -408,10 +411,11 @@ class Model(nn.Module):
                 batch_loss  += bleu([prediction], [gold_ref])*Q_iter
         rewards = [bleu([prediction], [gold_ref]) for prediction, gold_ref in zip(predicted_sentences[-1], all_gold_sentences[-1])]
         Qs_to_return = [Q.tolist() for Q in list_of_Qs]
-        #batch_loss = loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, batch.trg)
+        #batch_loss = loss_function(predicted_strings, gold_strings, log_probabs, top_words, sequence, trg)
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, Qs_to_return, rewards]
 
-    def mrt(self, max_output_length, batch: Batch,  temperature: float, samples: int, alpha: float, add_gold=False) \
+    def mrt(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                       src_length: Tensor,  temperature: float, samples: int, alpha: float, add_gold=False) \
                 -> Tensor:
         predicted_sentences = [] # collect all translations
         all_gold_sentences = []
@@ -422,14 +426,14 @@ class Model(nn.Module):
         all_targets = []
         all_sequences = []
         encoder_output, encoder_hidden = self._encode(
-                batch.src, batch.src_length,
-                batch.src_mask)
+                src, src_length,
+                src_mask)
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
-            max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
-        batch_size = batch.src_mask.size(0)
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        batch_size = src_mask.size(0)
         for _sample in range(samples):
-            sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
+            sequence = src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
                                         dtype=torch.long)
             hidden = self.decoder._init_hidden(encoder_hidden)
             attention_vectors = None
@@ -443,13 +447,13 @@ class Model(nn.Module):
             #sample_distributions = []
             top_words = []
             total_prob = 0
-            targets = batch.trg.tolist()
+            targets = trg.tolist()
             for i in range(max_output_length):
                 previous_words = sequence[:, -1].view(-1, 1)
                 logits, hidden, attention_scores, attention_vectors = self.decoder(
                     encoder_output=encoder_output,
                     encoder_hidden=encoder_hidden,
-                    src_mask=batch.src_mask,
+                    src_mask=src_mask,
                     trg_embed=self.trg_embed(previous_words),
                     hidden=hidden,
                     prev_att_vector=attention_vectors,
@@ -465,9 +469,9 @@ class Model(nn.Module):
                 # get probability of gold token 
                 if _sample == samples-1:
                     top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
-                    if i < len(batch.trg.tolist()[0]):
+                    if i < len(trg.tolist()[0]):
                         # get ith column 
-                        ith_column = batch.trg[:,i]
+                        ith_column = trg[:,i]
                         # incrementally update gold ranks in every step
                         for index, token in enumerate(ith_column.tolist()):
                             if token in top100_probs_probs_index.tolist()[index]:
@@ -493,13 +497,13 @@ class Model(nn.Module):
                     entropy += self.tensor_to_float(batch_data[0][0])
                     top_words.append(highest_words) 
 
-            all_targets.append(batch.trg)
+            all_targets.append(trg)
             all_sequences.append(sequence)
             sentence_probabs.append(total_prob)
 
             predicted_output = self.trg_vocab.arrays_to_sentences(arrays=sequence,
                                                 cut_at_eos=True)
-            gold_output = self.trg_vocab.arrays_to_sentences(arrays=batch.trg,
+            gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                 cut_at_eos=True)
             predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
             gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
@@ -530,21 +534,22 @@ class Model(nn.Module):
         return batch_loss, [entropy/max_output_length, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, Qs_to_return, rewards]
 
 
-    def a2c(self, max_output_length, batch: Batch, temperature: float, critic: nn.Module) \
+    def a2c(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                       src_length: Tensor, temperature: float, critic: nn.Module) \
             -> Tensor:
             encoder_output, encoder_hidden = self.encode(
-                batch.src, batch.src_length,
-                batch.src_mask)
+                src, src_length,
+                src_mask)
             
             # if maximum output length is not globally specified, adapt to src len
             if max_output_length is None:
-                max_output_length = int(max(batch.src_length.cpu().numpy()) * 1.5)
+                max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
 
-            batch_size = batch.src_mask.size(0)
-            sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
+            batch_size = src_mask.size(0)
+            sequence = src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
                                         dtype=torch.long)
 
-            critic_sequence = batch.src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
+            critic_sequence = src_mask.new_full(size=[batch_size, 1], fill_value=self.bos_index,
                                         dtype=torch.long)
 
             hidden = self.decoder._init_hidden(encoder_hidden)
@@ -559,14 +564,14 @@ class Model(nn.Module):
             gold_token_ranks = [[] for i in range(batch_size)]
 
             entropy = 0 
-            targets = batch.trg.tolist()
+            targets = trg.tolist()
             distributions = []
             top_words = []
             actor_log_probabs = []
             actor_samples = []
             critic_encoder_output, critic_encoder_hidden = critic._encode(
-                batch.src, batch.src_length,
-                batch.src_mask)
+                src, src_length,
+                src_mask)
             critic_logits = []
             critic_attention_vectors = None 
             critic_hidden = critic.decoder._init_hidden(critic_encoder_hidden)
@@ -577,7 +582,7 @@ class Model(nn.Module):
                 logits, hidden, attention_scores, attention_vectors = self.decoder(
                     encoder_output=encoder_output,
                     encoder_hidden=encoder_hidden,
-                    src_mask=batch.src_mask,
+                    src_mask=src_mask,
                     trg_embed=self.trg_embed(previous_words),
                     hidden=hidden,
                     prev_att_vector=attention_vectors,
@@ -587,9 +592,9 @@ class Model(nn.Module):
                 probabilities=distrib.probs
                 # get probability of gold token 
                 top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)    
-                if i < len(batch.trg.tolist()[0]):
+                if i < len(trg.tolist()[0]):
                     # get ith column 
-                    ith_column = batch.trg[:,i]
+                    ith_column = trg[:,i]
                     # incrementally update gold ranks in every step
                     for index, token in enumerate(ith_column.tolist()):
                         if token in top100_probs_probs_index.tolist()[index]:
@@ -629,7 +634,7 @@ class Model(nn.Module):
                 critic_logit, critic_hidden, critic_attention_scores, critic_attention_vectors = critic.decoder(
                     encoder_output=critic_encoder_output,
                     encoder_hidden=critic_encoder_hidden,
-                    src_mask=batch.src_mask,
+                    src_mask=src_mask,
                     trg_embed=self.trg_embed(sampled_word.view(-1,1)),
                     hidden=critic_hidden,
                     prev_att_vector=critic_attention_vectors,
@@ -641,7 +646,7 @@ class Model(nn.Module):
                 critic_sequence = torch.cat([critic_sequence, critic_sample.view(-1, 1)], -1)
             predicted_output = self.trg_vocab.arrays_to_sentences(arrays=sequence,
                                                 cut_at_eos=True)
-            gold_output = self.trg_vocab.arrays_to_sentences(arrays=batch.trg,
+            gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                 cut_at_eos=True)
             predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
             gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
@@ -702,24 +707,33 @@ class Model(nn.Module):
 
         if return_type == "reinforce":
             loss, logging = self.reinforce(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
             max_output_length=kwargs["max_output_length"],
-            batch=kwargs["batch"],
             temperature=kwargs["temperature"]
             )
             return_tuple = (loss, logging, None, None)
 
         if return_type == "transformer_reinforce":
             loss, logging = self.reinforce_transformer(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
             max_output_length=kwargs["max_output_length"],
-            batch=kwargs["batch"],
             temperature=kwargs["temperature"]
             )
             return_tuple = (loss, logging, None, None)
 
         if return_type == "mrt":
             loss, logging = self.mrt(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
             max_output_length=kwargs["max_output_length"],
-            batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             alpha=kwargs["alpha"],
             samples=kwargs["samples"]
@@ -728,8 +742,11 @@ class Model(nn.Module):
 
         if return_type == "transformer_mrt":
             loss, logging = self.mrt_transformer(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
             max_output_length=kwargs["max_output_length"],
-            batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             alpha=kwargs["alpha"],
             samples=kwargs["samples"]
@@ -738,8 +755,11 @@ class Model(nn.Module):
 
         if return_type == "a2c":
             loss, logging = self.a2c(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
             max_output_length=kwargs["max_output_length"],
-            batch=kwargs["batch"],
             temperature=kwargs["temperature"],
             criic=critic["critic"]
             )
@@ -902,6 +922,7 @@ def build_model(cfg: dict = None,
                                      emb_size=src_embed.embedding_dim,
                                      emb_dropout=enc_emb_dropout)
     else:
+        print("src_embedding dim ", rc_embed.embedding_dim)
         encoder = RecurrentEncoder(**cfg["encoder"],
                                    emb_size=src_embed.embedding_dim,
                                    emb_dropout=enc_emb_dropout)

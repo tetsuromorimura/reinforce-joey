@@ -530,14 +530,22 @@ class TrainManager:
         if self.reinforcement_learning: 
             if self.config["model"]["encoder"].get("type", "recurrent") == "transformer":
                 batch_loss, distribution, _, _ = self.model(
-                        return_type="transformer_"+self.method, max_output_length=self.max_output_length, 
-                        batch=batch, temperature = self.temperature, 
+                        return_type="transformer_"+self.method, 
+                        src=batch.src, trg=batch.trg,
+                        trg_input=batch.trg_input, src_mask=batch.src_mask,
+                        src_length=batch.src_length, trg_mask=batch.trg_mask,
+                        max_output_length=self.max_output_length, 
+                        temperature = self.temperature, 
                         samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
             
             else:
                 batch_loss, distribution, _, _ = self.model(
-                        return_type=self.method, max_output_length=self.max_output_length,
-                        batch=batch, temperature = self.temperature, 
+                        return_type=self.method, 
+                        src=batch.src, trg=batch.trg,
+                        trg_input=batch.trg_input, src_mask=batch.src_mask,
+                        src_length=batch.src_length, trg_mask=batch.trg_mask,
+                        max_output_length=self.max_output_length,
+                        temperature = self.temperature, 
                         samples=self.samples, alpha = self.alpha, add_gold=self.add_gold,
                         critic=self.critic)
 
