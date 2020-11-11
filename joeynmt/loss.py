@@ -159,6 +159,14 @@ class ReinforceLoss(nn.Module):
                 new_bleus = [score - average_bleu for score in bleu_scores]
                 old_bleus = bleu_scores
                 bleu_scores = new_bleus
+
+            if self.baseline == "scaled_reward_baseline":
+                def scale(reward, a, b, minim, maxim):
+                    return (((b-a)(reward - minim))/(maxim-minim)) + a 
+                new_bleus = [scale(score, -0.5, 0.5, 0, 100) for score in bleu_scores]
+                old_bleus = bleu_scores
+                bleu_scores = new_bleus
+
             elif self.baseline == "learned_reward_baseline": 
                 with torch.enable_grad(): 
                     stacked_output = stacked_output.float()

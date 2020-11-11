@@ -128,7 +128,8 @@ def validate_on_data(model: Model, data: Dataset,
                                 trg_input=batch.trg_input, src_mask=batch.src_mask,
                                 src_length=batch.src_length, trg_mask=batch.trg_mask,
                                 temperature = temperature, 
-                                samples=samples, alpha = alpha, add_gold=add_gold)
+                                samples=samples, alpha = alpha, add_gold=add_gold,
+                                critic=critic)
                     else:
                         batch_loss, distribution, _, _ = model(
                                 return_type=method, max_output_length=max_output_length,
@@ -139,6 +140,7 @@ def validate_on_data(model: Model, data: Dataset,
                                 samples=samples, alpha = alpha, add_gold=add_gold,
                                 critic=critic)
                     if method == "a2c":
+                        losses = batch_loss
                         batch_loss = losses[0] 
                         critic_loss = losses[1] 
                 else:

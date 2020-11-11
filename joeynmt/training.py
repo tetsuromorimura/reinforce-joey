@@ -536,7 +536,8 @@ class TrainManager:
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         max_output_length=self.max_output_length, 
                         temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
+                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold,
+                        critic=self.critic)
             
             else:
                 batch_loss, distribution, _, _ = self.model(
@@ -550,6 +551,7 @@ class TrainManager:
                         critic=self.critic)
 
             if self.method == "a2c":
+                losses = batch_loss
                 batch_loss = losses[0] 
                 critic_loss = losses[1] 
 
