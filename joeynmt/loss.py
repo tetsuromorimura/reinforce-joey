@@ -162,7 +162,7 @@ class ReinforceLoss(nn.Module):
 
             if self.baseline == "scaled_reward_baseline":
                 def scale(reward, a, b, minim, maxim):
-                    return (((b-a)(reward - minim))/(maxim-minim)) + a 
+                    return (((b-a)*(reward - minim))/(maxim-minim)) + a 
                 new_bleus = [scale(score, -0.5, 0.5, 0, 100) for score in bleu_scores]
                 old_bleus = bleu_scores
                 bleu_scores = new_bleus
@@ -209,7 +209,6 @@ class ReinforceLoss(nn.Module):
                 # remove training data if its too much 
                 if self.all_targets_and_outputs.size()[0] > self.max_training_size:
                     rows_to_keep = self.all_targets_and_outputs.size()[0] - stacked_training_data.size()[0]
-                    #print("before deletion ", self.all_targets_and_outputs.size())
                     indices = sample(range(N),rows_to_keep)
                     self.all_targets_and_outputs = self.all_targets_and_outputs[indices,:]
                     self.all_bleus = self.all_bleus[indices,:]

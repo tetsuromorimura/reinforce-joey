@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from joeynmt.initialization import initialize_model
 from joeynmt.embeddings import Embeddings
 from joeynmt.encoders import Encoder, RecurrentEncoder, TransformerEncoder
-from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder
+from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder, CriticDecoder
 from joeynmt.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
 from joeynmt.vocabulary import Vocabulary
 from torch.distributions import Categorical
@@ -84,8 +84,6 @@ class Model(nn.Module):
                 else:
                     return 0
             except ValueError as e:
-                #print("Only one element tensors can be converted to Python scalars")
-                #print("Handling a", type(e), " error, rounding to 0")
                 return 0 
 
     def calculate_peakiness_and_entropy(self, distrib):
@@ -326,6 +324,7 @@ class Model(nn.Module):
             top_words = []
             sample_distributions = []
             total_prob = 0
+            collect_gold_probs = 0 
             for i in range(max_output_length):
                 logits, out, _, _ = self.decoder(
                 trg_embed=self.trg_embed(ys),
@@ -355,6 +354,7 @@ class Model(nn.Module):
                         # incrementally update gold tokens in every step
                         if not token == self.pad_index:
                             gold_probability = torch.exp(distrib.log_prob(ith_column))
+                            collect_gold_probs-=distrib.log_prob(ith_column)
                             for index in range(len(gold_probability.tolist())):
                                 if not ith_column[index] == self.pad_index:
                                     gold_probabilities[index].append(gold_probability.tolist()[index])
@@ -391,10 +391,7 @@ class Model(nn.Module):
             all_highest_words.append(top_words)
 
         if add_gold:
-            log_gold_prob=0
-            for elem in gold_strings:
-                log_gold_prob-= distrib.log_prob(elem)
-            sentence_probabs.append(log_gold_prob)
+            sentence_probabs.append(collect_gold_probs)
             predicted_sentences.append(gold_strings)
             all_gold_sentences.append(gold_strings)
         # calculate Qs
@@ -512,7 +509,7 @@ class Model(nn.Module):
         # calculate Qs
         if add_gold:
             log_gold_prob=0
-            for elem in gold_strings:
+            for elem in trg:
                 log_gold_prob-= distrib.log_prob(elem)
             sentence_probabs.append(log_gold_prob)
             predicted_sentences.append(gold_strings)
@@ -940,7 +937,6 @@ class Model(nn.Module):
 
             # return decoder outputs
             return_tuple = (outputs, hidden, att_probs, att_vectors)
-        #print(return_tuple[0])
         return return_tuple
 
     # pylint: disable=arguments-differ
@@ -1033,7 +1029,8 @@ class _DataParallel(nn.DataParallel):
 
 def build_model(cfg: dict = None,
                 src_vocab: Vocabulary = None,
-                trg_vocab: Vocabulary = None) -> Model:
+                trg_vocab: Vocabulary = None,
+                is_critic: bool = False) -> Model:
     """
     Build and initialize the model according to the configuration.
 
@@ -1067,18 +1064,27 @@ def build_model(cfg: dict = None,
     enc_dropout = cfg["encoder"].get("dropout", 0.)
     enc_emb_dropout = cfg["encoder"]["embeddings"].get("dropout", enc_dropout)
     if cfg["encoder"].get("type", "recurrent") == "transformer":
-        assert cfg["encoder"]["embeddings"]["embedding_dim"] == \
-               cfg["encoder"]["hidden_size"], \
-               "for transformer, emb_size must be hidden_size"
+        if is_critic: 
+            decoder = CriticDecoder(
+            **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
+            emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
+        else:
+            assert cfg["encoder"]["embeddings"]["embedding_dim"] == \
+                cfg["encoder"]["hidden_size"], \
+                "for transformer, emb_size must be hidden_size"
 
-        encoder = TransformerEncoder(**cfg["encoder"],
-                                     emb_size=src_embed.embedding_dim,
-                                     emb_dropout=enc_emb_dropout)
+            encoder = TransformerEncoder(**cfg["encoder"],
+                                        emb_size=src_embed.embedding_dim,
+                                        emb_dropout=enc_emb_dropout)
     else:
-        #print("src_embedding dim ", rc_embed.embedding_dim)
-        encoder = RecurrentEncoder(**cfg["encoder"],
-                                   emb_size=src_embed.embedding_dim,
-                                   emb_dropout=enc_emb_dropout)
+        if is_critic: 
+            decoder = CriticDecoder(
+            **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
+            emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
+        else:
+            encoder = RecurrentEncoder(**cfg["encoder"],
+                                    emb_size=src_embed.embedding_dim,
+                                    emb_dropout=enc_emb_dropout)
 
     # build decoder
     dec_dropout = cfg["decoder"].get("dropout", 0.)

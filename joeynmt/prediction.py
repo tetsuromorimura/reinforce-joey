@@ -150,7 +150,7 @@ def validate_on_data(model: Model, data: Dataset,
                         src_mask=batch.src_mask, src_length=batch.src_length)
                 if n_gpu > 1:
                     batch_loss = batch_loss.mean() # average on multi-gpu
-                    if self.method == "a2c":
+                    if method == "a2c":
                         critic_loss.mean()
                 total_loss += batch_loss
                 total_ntokens += batch.ntokens
