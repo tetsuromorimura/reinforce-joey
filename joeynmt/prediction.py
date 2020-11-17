@@ -322,6 +322,7 @@ def test(cfg_file,
 
     cfg = load_config(cfg_file)
     model_dir = cfg["training"]["model_dir"]
+    baseline = cfg["training"]["reinforcement_learning"]["hyperparameters"].get("baseline", False)
 
     if len(logger.handlers) == 0:
         _ = make_logger(model_dir, mode="test")   # version string returned
@@ -355,6 +356,24 @@ def test(cfg_file,
 
     # build model and load parameters into it
     model = build_model(cfg["model"], src_vocab=src_vocab, trg_vocab=trg_vocab)
+
+    if baseline == "learned_reward_baseline":
+        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"]
+        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"]
+        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"]
+        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"]
+
+        """
+        hidden_size = 100
+        padding_size = 180
+        l1 = torch.nn.Linear(2*padding_size, 100)
+        l2 = torch.nn.Linear(100, 1)
+        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"]=l1.weight
+        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"]=l1.bias
+        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"]=l2.weight
+        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"]=l2.bias
+        """
+
     model.load_state_dict(model_checkpoint["model_state"])
 
     if use_cuda:
@@ -373,8 +392,8 @@ def test(cfg_file,
 
         #pylint: disable=unused-variable
         score, loss, ppl, sources, sources_raw, references, hypotheses, \
-        hypotheses_raw, attention_scores = validate_on_data(
-            model, data=data_set, batch_size=batch_size,
+        hypotheses_raw, attention_scores,valid_data = validate_on_data(
+            model, data=data_set, batch_size=batch_size, config=cfg,
             batch_type=batch_type, level=level,
             max_output_length=max_output_length, eval_metric=eval_metric,
             use_cuda=use_cuda, compute_loss=False, beam_size=beam_size,

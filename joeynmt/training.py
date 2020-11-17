@@ -64,7 +64,6 @@ class TrainManager:
         self.config = config
         # files for logging and storing
         train_config = config["training"]
-
         # files for logging and storing
         self.model_dir = train_config["model_dir"]
         assert os.path.exists(self.model_dir)
@@ -97,7 +96,6 @@ class TrainManager:
         self.critic = None
         if self.method == "a2c":
             self.critic = critic_model
-
         # model
         self.model = model
         self._log_parameters_list()
@@ -217,7 +215,6 @@ class TrainManager:
             self.model.cuda()
             if self.method == "a2c":
                 self.critic.cuda()
-
         # fp16
         self.fp16 = train_config.get("fp16", False)
         if self.fp16:
@@ -530,25 +527,25 @@ class TrainManager:
         if self.reinforcement_learning: 
             if self.config["model"]["encoder"].get("type", "recurrent") == "transformer":
                 batch_loss, distribution, _, _ = self.model(
+                        critic=self.critic,
                         return_type="transformer_"+self.method, 
                         src=batch.src, trg=batch.trg,
                         trg_input=batch.trg_input, src_mask=batch.src_mask,
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         max_output_length=self.max_output_length, 
                         temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold,
-                        critic=self.critic)
+                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
             
             else:
                 batch_loss, distribution, _, _ = self.model(
                         return_type=self.method, 
+                        critic=self.critic,
                         src=batch.src, trg=batch.trg,
                         trg_input=batch.trg_input, src_mask=batch.src_mask,
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         max_output_length=self.max_output_length,
                         temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold,
-                        critic=self.critic)
+                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
 
             if self.method == "a2c":
                 losses = batch_loss
@@ -591,17 +588,17 @@ class TrainManager:
             with amp.scale_loss(norm_batch_loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
-            norm_batch_loss.backward()
+            norm_batch_loss.backward(retain_graph=True)
 
         # perform critic backward and optimization step 
         # TODO move out of fcn
         if self.method == "a2c":
+            #norm_batch_loss.backward(retain_graph=True)
             norm_critic_loss.backward()
             if self.clip_grad_fun is not None:
                 self.clip_grad_fun(params=self.critic.parameters())
             self.critic_optimizer.step()
             self.critic_optimizer.zero_grad()
-            
         # increment token counter
         self.stats.total_tokens += batch.ntokens
 
@@ -627,7 +624,8 @@ class TrainManager:
                 postprocess=True,           # always remove BPE for validation
                 bpe_type=self.bpe_type,     # "subword-nmt" or "sentencepiece"
                 sacrebleu=self.sacrebleu,   # sacrebleu options
-                n_gpu=self.n_gpu
+                n_gpu=self.n_gpu,
+                critic=self.critic
             )
 
         self.tb_writer.add_scalar(
@@ -809,7 +807,11 @@ class TrainManager:
         batch_ranks = []
         # log rewards 
         if self.method == "a2c":
+            with open(self.model_dir+"/reward.pickle", "wb") as f:
+                pickle.dump(rewards, f)
+            """
             sumed_rewards = []
+            
             average_rewards = []
             for batch_rewards in rewards: 
                 sumed_rewards.extend(sum(batch_rewards).tolist())
@@ -830,8 +832,9 @@ class TrainManager:
                 "Std score %2.4f \n" 
                 "Variance score %2.4f \n",
                 np.mean(sumed_rewards), np.std(sumed_rewards), np.var(sumed_rewards), np.mean(average_rewards), 
-                np.std(average_rewards), np.var(average_rewards), np.mean(old_bleus), np.std(old_bleus), np.var(old_bleus)
-        )
+                np.std(average_rewards), np.var(average_rewards), np.mean(old_bleus), np.std(old_bleus), np.var(old_bleus))
+                """
+        
         elif self.method == "reinforce": 
             all_rewards = []
             for reward_list in rewards: 
@@ -900,6 +903,7 @@ class TrainManager:
             pickle.dump(self.collected_gold_probability, f)
         with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
             pickle.dump(self.collected_gold_ranks, f)
+            
 
         for sentence_index in range(len(valid_hypotheses[:5])):
             sentence_ranks = []

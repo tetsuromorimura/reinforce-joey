@@ -162,8 +162,16 @@ class ReinforceLoss(nn.Module):
 
             if self.baseline == "scaled_reward_baseline":
                 def scale(reward, a, b, minim, maxim):
-                    return (((b-a)*(reward - minim))/(maxim-minim)) + a 
-                new_bleus = [scale(score, -0.5, 0.5, 0, 100) for score in bleu_scores]
+                    if maxim-minim == 0:
+                        return 0
+                    else: 
+                        return (((b-a)*(reward - minim))/(maxim-minim)) + a 
+                #maxim = max([max(scores) for scores in self.bleu])
+                #minim = min([min(scores) for scores in self.bleu])
+                maxim = max(bleu_scores)
+                minim = min(bleu_scores)
+                new_bleus = [scale(score, -0.5, 0.5, minim, maxim) for score in bleu_scores]
+                print(new_bleus)
                 old_bleus = bleu_scores
                 bleu_scores = new_bleus
 
