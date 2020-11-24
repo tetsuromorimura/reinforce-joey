@@ -1,3 +1,8 @@
+This is a fork of the awesome [Joey-NMT](https://github.com/joeynmt/joeynmt) which implemts Reinforcemen algorithms like Policy Gradient, MRT and Advantage Actor Critic.  
+A detailed description will follow soon. 
+
+
+
 # &nbsp; ![Joey-NMT](joey-small.png) Joey NMT
 [![Build Status](https://travis-ci.com/joeynmt/joeynmt.svg?branch=master)](https://travis-ci.org/joeynmt/joeynmt)
 [![Gitter](https://badges.gitter.im/joeynmt/community.svg)](https://gitter.im/joeynmt/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
