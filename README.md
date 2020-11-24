@@ -1,4 +1,4 @@
-This is a fork of the awesome [Joey-NMT](https://github.com/joeynmt/joeynmt) which implemts Reinforcemen algorithms like Policy Gradient, MRT and Advantage Actor Critic.  
+This is a fork of the awesome [Joey-NMT](https://github.com/joeynmt/joeynmt) which implements Reinforcement Learning algorithms like Policy Gradient, MRT and Advantage Actor Critic.  
 A detailed description will follow soon. 
 
 
