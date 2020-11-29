@@ -1,13 +1,11 @@
-# &nbsp; ![Joey-NMT](joey-small.png) Joey NMT
-[![Build Status](https://travis-ci.com/joeynmt/joeynmt.svg?branch=master)](https://travis-ci.org/joeynmt/joeynmt)
-[![Gitter](https://badges.gitter.im/joeynmt/community.svg)](https://gitter.im/joeynmt/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+# &nbsp; ![Reinforce-Joey](joey-small.png) Joey NMT
 
 ## Implemented algorithms:  
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Each algorithm is implemented for Transformer and for RNN. 
+Each algorithm is implemented for Transformer and for RNNs. 
 
 ## Currently WIP: 
 - clean repo  
