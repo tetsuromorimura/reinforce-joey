@@ -108,10 +108,10 @@ class ReinforceLoss(nn.Module):
             self.max_training_size = 500000
             """
             self.padding_size = 180
-            self.hidden_size = 100
-            self.steps = 100 # steps should be more than batch size
-            self.max_elements = 800 # maximum number of samples to train
-            self.max_training_size = 5000
+            self.hidden_size = 200
+            self.steps = 500 # steps should be more than batch size
+            self.max_elements = 2000 # maximum number of samples to train
+            self.max_training_size = 10000
             self.learned_baseline_model = RewardRegressionModel(2*self.padding_size, self.hidden_size, 1)
             self.learned_baseline_learning_rate = 1e-4
             self.learned_baseline_optimizer = torch.optim.Adam(self.learned_baseline_model.parameters(), lr=self.learned_baseline_learning_rate)
@@ -123,44 +123,14 @@ class ReinforceLoss(nn.Module):
                 self.all_bleus = torch.FloatTensor().cuda()
 
     # TODO examine BLEU different smoothing types
-    def forward(self, predicted, gold, log_probs, highest_words, stacked_output, targets):
+    def forward(self, predicted, gold, log_probs, stacked_output, targets):
         if self.reward == "constant":
             bleu_scores = [1]*len(log_probs)
             old_bleus = bleu_scores
-            loss = sum([-log_prob for log_prob in log_probs])
-        elif self.reward == "simulated":
-            rewards = []
-            for sentindex, predicted_sent in enumerate(predicted): 
-                reward = 0 
-                for wordindex, predicted_word in enumerate(predicted_sent.split()[1:]):
-                    if wordindex <= len(highest_words[sentindex]) and highest_words[sentindex][wordindex] != []:
-                        if predicted_word == highest_words[sentindex][wordindex][0]:
-                            reward+=2
-                        elif predicted_word in highest_words[sentindex][wordindex]:
-                            reward+=1
-                rewards.append(reward)
-            loss = 0
-            bleu_scores = rewards
-            old_bleus = rewards
-            for log_prob, reward in zip(log_probs, rewards):
-                loss += log_prob*reward
+            loss = sum([log_prob for log_prob in log_probs])
             #loss = sum([-log_prob for log_prob in log_probs])
-        elif self.reward == "bleu":
-            bleu_scores = []
-            for prediction, gold_ref in zip(predicted, gold):
-                bleu_scores.append(bleu([prediction], [gold_ref]))
-                #bleu_scores.append(sacrebleu.sentence_bleu(prediction, gold_ref))
-            self.bleu.append(bleu_scores)
-            self.counter += len(bleu_scores)
-            # use baselines
-            old_bleus=[]
-            if self.baseline == "average_reward_baseline":
-                average_bleu = sum([sum(score) for score in self.bleu])/self.counter
-                new_bleus = [score - average_bleu for score in bleu_scores]
-                old_bleus = bleu_scores
-                bleu_scores = new_bleus
-
-            if self.baseline == "scaled_reward_baseline":
+            
+        elif self.reward == "scaled_bleu":
                 def scale(reward, a, b, minim, maxim):
                     if maxim-minim == 0:
                         return 0
@@ -175,6 +145,21 @@ class ReinforceLoss(nn.Module):
                 old_bleus = bleu_scores
                 bleu_scores = new_bleus
 
+        elif self.reward == "bleu":
+            bleu_scores = []
+            for prediction, gold_ref in zip(predicted, gold):
+                bleu_scores.append(bleu([prediction], [gold_ref]))
+                #bleu_scores.append(sacrebleu.sentence_bleu(prediction, gold_ref))
+            self.bleu.append(bleu_scores)
+            self.counter += len(bleu_scores)
+            # use baselines
+            old_bleus=[]
+            if self.baseline == "average_reward_reward":
+                average_bleu = sum([sum(score) for score in self.bleu])/self.counter
+                new_bleus = [score - average_bleu for score in bleu_scores]
+                old_bleus = bleu_scores
+                bleu_scores = new_bleus
+            
             elif self.baseline == "learned_reward_baseline": 
                 with torch.enable_grad(): 
                     stacked_output = stacked_output.float()

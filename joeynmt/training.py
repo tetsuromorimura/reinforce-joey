@@ -83,15 +83,15 @@ class TrainManager:
         self.alpha = train_config["reinforcement_learning"]["hyperparameters"]["alpha"]
         self.add_gold = train_config["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
 
-        if self.reinforcement_learning:
-            self.peakiness_logger = make_retro_logger("{}/peakiness.log".format(self.model_dir), "peakiness_logger")
-            self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
-            self.reranking_logger = make_retro_logger("{}/reranking.log".format(self.model_dir), "reranking_logger")
-            self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
-            self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
-            self.reward_logger = make_retro_logger("{}/reward.log".format(self.model_dir), "reward_logger")
-            self.hallucination_logger = make_retro_logger("{}/hallucination.log".format(self.model_dir), "hallucination_logger")
-            self.all_rewards_logger = make_retro_logger("{}/all_rewards.log".format(self.model_dir), "all_rewards_logger")
+        #if self.reinforcement_learning:
+        self.peakiness_logger = make_retro_logger("{}/peakiness.log".format(self.model_dir), "peakiness_logger")
+        self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
+        self.reranking_logger = make_retro_logger("{}/reranking.log".format(self.model_dir), "reranking_logger")
+        self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
+        self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
+        self.reward_logger = make_retro_logger("{}/reward.log".format(self.model_dir), "reward_logger")
+        self.hallucination_logger = make_retro_logger("{}/hallucination.log".format(self.model_dir), "hallucination_logger")
+        self.all_rewards_logger = make_retro_logger("{}/all_rewards.log".format(self.model_dir), "all_rewards_logger")
 
         self.critic = None
         if self.method == "a2c":
@@ -315,7 +315,15 @@ class TrainManager:
         """
         logger.info("Loading model from %s", path)
         model_checkpoint = load_checkpoint(path=path, use_cuda=self.use_cuda)
-
+        if self.method == "learned_reward_baseline":
+            padding_size = 180
+            hidden_size = 200
+            l1 = nn.Linear(padding_size, hidden_size)
+            l2=nn.Linear(hidden_size, 1)
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"] = l1.weight
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"] = l1.bias
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"] = l2.weight
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"] = l2.bias
         # restore model and optimizer parameters
         self.model.load_state_dict(model_checkpoint["model_state"])
 
@@ -553,9 +561,10 @@ class TrainManager:
                 critic_loss = losses[1] 
 
         else:
-            batch_loss, _, _, _ = self.model(
+            batch_loss, distribution, _, _ = self.model(
                 return_type="loss", src=batch.src, trg=batch.trg,
                 trg_input=batch.trg_input, src_mask=batch.src_mask,
+                max_output_length=self.max_output_length,
                 src_length=batch.src_length, trg_mask=batch.trg_mask)
 
         # average on multi-gpu parallel training
@@ -589,7 +598,6 @@ class TrainManager:
                 scaled_loss.backward()
         else:
             norm_batch_loss.backward(retain_graph=True)
-
         # perform critic backward and optimization step 
         # TODO move out of fcn
         if self.method == "a2c":
@@ -693,8 +701,8 @@ class TrainManager:
                     self.model_dir, self.stats.steps),
                 tb_writer=self.tb_writer, steps=self.stats.steps)
 
-        if self.reinforcement_learning == True:
-            self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
+        #if self.reinforcement_learning == True:
+        self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
 
         return valid_duration
 
@@ -852,7 +860,7 @@ class TrainManager:
             np.mean(all_rewards), np.std(all_rewards), np.var(all_rewards), np.mean(old_bleus), np.std(old_bleus), np.var(old_bleus)
                 )
 
-
+        """
         for sentence_index in range(len(valid_hypotheses)):
             self.hallucination_logger.info(
                     "\n"
@@ -861,7 +869,7 @@ class TrainManager:
                     , 
                 gold_strings[sentence_index], predicted_strings[sentence_index])
         # log rewards
-        
+        """
         # calculate average probabilities
         average_total_prob=0
         if len(total_probability) != 0:
@@ -876,7 +884,6 @@ class TrainManager:
                 if len(highest_prob[sent_index]) != 0:
                     average_highest_prob += sum(highest_prob[sent_index])/(len(highest_prob[sent_index]))
             average_highest_prob = average_highest_prob/len(highest_prob)
-
         average_gold_prob=0
         if len(gold_probabilities) !=0:
             for sent_index in range(len(gold_probabilities)):
@@ -904,7 +911,7 @@ class TrainManager:
         with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
             pickle.dump(self.collected_gold_ranks, f)
             
-
+        """
         for sentence_index in range(len(valid_hypotheses[:5])):
             sentence_ranks = []
             self.peakiness_logger.info("New example -----------------------------------------------: \n"
@@ -931,6 +938,7 @@ class TrainManager:
                     " ".join(highest_words[sentence_index][word_index][0]), total_probability[sentence_index][word_index], 
                     highest_word[sentence_index][word_index], highest_prob[sentence_index][word_index])     
             batch_ranks.append(sentence_ranks)
+        """
         
         # calculate and log tracking of the gold tokens 
         if self.epoch_gold_ranks != []:

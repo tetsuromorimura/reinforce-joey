@@ -144,9 +144,10 @@ def validate_on_data(model: Model, data: Dataset,
                         batch_loss = losses[0] 
                         critic_loss = losses[1] 
                 else:
-                    batch_loss, _, _, _ = model(
+                    batch_loss, distribution, _, _ = model(
                         return_type="loss", src=batch.src, trg=batch.trg,
                         trg_input=batch.trg_input, trg_mask=batch.trg_mask,
+                        max_output_length=max_output_length,
                         src_mask=batch.src_mask, src_length=batch.src_length)
                 if n_gpu > 1:
                     batch_loss = batch_loss.mean() # average on multi-gpu
@@ -156,19 +157,19 @@ def validate_on_data(model: Model, data: Dataset,
                 total_ntokens += batch.ntokens
                 total_nseqs += batch.nseqs
 
-                if reinforcement_learning:
-                    entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
-                    valid_data[0] += entropy
-                    valid_data[1].extend(gold_strings)
-                    valid_data[2].extend(predicted_strings)
-                    valid_data[3].extend(highest_words)
-                    valid_data[4].extend(total_probability)
-                    valid_data[5].extend(highest_word)
-                    valid_data[6].extend(highest_prob)
-                    valid_data[7].extend(gold_probabilities)
-                    valid_data[8].extend(gold_token_ranks)
-                    valid_data[9].append(rewards)
-                    valid_data[10].extend(old_bleus)
+                #if reinforcement_learning:
+                entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
+                valid_data[0] += entropy
+                valid_data[1].extend(gold_strings)
+                valid_data[2].extend(predicted_strings)
+                valid_data[3].extend(highest_words)
+                valid_data[4].extend(total_probability)
+                valid_data[5].extend(highest_word)
+                valid_data[6].extend(highest_prob)
+                valid_data[7].extend(gold_probabilities)
+                valid_data[8].extend(gold_token_ranks)
+                valid_data[9].append(rewards)
+                valid_data[10].extend(old_bleus)
 
             # run as during inference to produce translations
             output, attention_scores = run_batch(
@@ -218,7 +219,6 @@ def validate_on_data(model: Model, data: Dataset,
             current_valid_score = 0
             if eval_metric.lower() == 'bleu':
                 # this version does not use any tokenization
-                print("screbleu ", sacrebleu)
                 current_valid_score = bleu(
                     valid_hypotheses, valid_references,
                     tokenize=sacrebleu["tokenize"])

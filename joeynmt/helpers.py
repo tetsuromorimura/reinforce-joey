@@ -347,3 +347,56 @@ def symlink_update(target, link_name):
             os.symlink(target, link_name)
         else:
             raise e
+
+def tensor_to_float(self, tensor, round_to_n=5):
+    try:
+        tensor.item()
+        if tensor.nelement() > 0:
+            return round(tensor.item(), round_to_n)
+        else:
+            return 0
+    except ValueError as e:
+        return 0
+
+def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus):            
+        sentence_probability = [[] for i in range(batch_size)]
+        sentence_highest_words = [[] for i in range(batch_size)]
+        sentence_highest_word = [[] for i in range(batch_size)]
+        sentence_highest_probability = [[] for i in range(batch_size)]
+        gold_probabilities = [[] for i in range(batch_size)]
+        gold_token_ranks = [[] for i in range(batch_size)]
+        entropy = 0 
+        for i, distrib in enumerate(distribs):
+            probabilities = distrib.probs            
+            topk_probs, topk_probs_probs_index = probabilities.topk(k, largest=True, sorted=True)
+            if i < trg.shape[1]:
+                # get ith column 
+                ith_column = trg[:,i]
+                gold_probability = torch.exp(distrib.log_prob(ith_column))                
+                # incrementally update gold ranks in every step
+                for index, token in enumerate(ith_column.tolist()):
+                    if token != pad_index:
+                        gold_probabilities[index].append(gold_probability.tolist()[index])                
+                        if token in topk_probs_probs_index.tolist()[index]:
+                            gold_token_ranks[index].append(topk_probs_probs_index.tolist()[index].index(token))
+                        else:   
+                            gold_token_ranks[index].append(900)
+            current_entropy = distrib.entropy().mean(0)
+            highest_probs, highest_probs_index = probabilities.topk(10 ,largest=True, sorted=True)
+            top_ten_probabilities = torch.sum(highest_probs, axis = 1)
+            highest_prob, highest_prob_index = probabilities.topk(1, largest=True)
+            highest_words = trg_vocab.arrays_to_sentences(arrays=highest_probs_index)
+            highest_word = trg_vocab.array_to_sentence(array=highest_prob_index)
+            for index in range(len(highest_word)):
+                if not ith_column[index] == pad_index:
+                    sentence_probability[index].append(top_ten_probabilities[index])
+                    sentence_highest_words[index].append(highest_words[index])
+                    sentence_highest_word[index].append(highest_word[index])
+                    sentence_highest_probability[index].append(highest_prob[index])
+            entropy += current_entropy
+        return [entropy, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
+
+def join_strings(wordlist):
+    return " ".join(wordlist).replace("@@ ", "")
+
+
