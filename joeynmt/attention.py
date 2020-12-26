@@ -120,11 +120,14 @@ class BahdanauAttention(AttentionMechanism):
         :param values:
         :return:
         """
+
+        """
         assert query.shape[0] == values.shape[0] == mask.shape[0]
         assert query.shape[1] == 1 == mask.shape[1]
         assert query.shape[2] == self.query_layer.in_features
         assert values.shape[2] == self.key_layer.in_features
         assert mask.shape[2] == values.shape[1]
+        """
 
     def __repr__(self):
         return "BahdanauAttention"
@@ -213,11 +216,14 @@ class LuongAttention(AttentionMechanism):
         :param values:
         :return:
         """
+
+        """
         assert query.shape[0] == values.shape[0] == mask.shape[0]
         assert query.shape[1] == 1 == mask.shape[1]
         assert query.shape[2] == self.key_layer.out_features
         assert values.shape[2] == self.key_layer.in_features
         assert mask.shape[2] == values.shape[1]
-
+        """
+        
     def __repr__(self):
         return "LuongAttention"

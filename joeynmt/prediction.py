@@ -98,6 +98,7 @@ def validate_on_data(model: Model, data: Dataset,
     reinforcement_learning = config["training"]["reinforcement_learning"]["use_reinforcement_learning"]
     temperature = config["training"]["reinforcement_learning"]["hyperparameters"]["temperature"]
     add_gold = config["training"]["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
+    log_probabilities = config["training"]["reinforcement_learning"].get("log_probabilities", False)
 
     model.eval()
     # don't track gradients during validation
@@ -129,7 +130,7 @@ def validate_on_data(model: Model, data: Dataset,
                                 src_length=batch.src_length, trg_mask=batch.trg_mask,
                                 temperature = temperature, 
                                 samples=samples, alpha = alpha, add_gold=add_gold,
-                                critic=critic)
+                                critic=critic, log_probabilities=log_probabilities)
                     else:
                         batch_loss, distribution, _, _ = model(
                                 return_type=method, max_output_length=max_output_length,
@@ -138,7 +139,7 @@ def validate_on_data(model: Model, data: Dataset,
                                 src_length=batch.src_length, trg_mask=batch.trg_mask,
                                 temperature = temperature, 
                                 samples=samples, alpha = alpha, add_gold=add_gold,
-                                critic=critic)
+                                critic=critic, log_probabilities=log_probabilities)
                     if method == "a2c":
                         losses = batch_loss
                         batch_loss = losses[0] 
@@ -157,19 +158,19 @@ def validate_on_data(model: Model, data: Dataset,
                 total_ntokens += batch.ntokens
                 total_nseqs += batch.nseqs
 
-                #if reinforcement_learning:
-                entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
-                valid_data[0] += entropy
-                valid_data[1].extend(gold_strings)
-                valid_data[2].extend(predicted_strings)
-                valid_data[3].extend(highest_words)
-                valid_data[4].extend(total_probability)
-                valid_data[5].extend(highest_word)
-                valid_data[6].extend(highest_prob)
-                valid_data[7].extend(gold_probabilities)
-                valid_data[8].extend(gold_token_ranks)
-                valid_data[9].append(rewards)
-                valid_data[10].extend(old_bleus)
+                if reinforcement_learning and log_probabilities:
+                    entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
+                    valid_data[0] += entropy
+                    valid_data[1].extend(gold_strings)
+                    valid_data[2].extend(predicted_strings)
+                    valid_data[3].extend(highest_words)
+                    valid_data[4].extend(total_probability)
+                    valid_data[5].extend(highest_word)
+                    valid_data[6].extend(highest_prob)
+                    valid_data[7].extend(gold_probabilities)
+                    valid_data[8].extend(gold_token_ranks)
+                    valid_data[9].append(rewards)
+                    valid_data[10].extend(old_bleus)
 
             # run as during inference to produce translations
             output, attention_scores = run_batch(

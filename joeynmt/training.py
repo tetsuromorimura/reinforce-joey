@@ -82,16 +82,13 @@ class TrainManager:
         self.samples = train_config["reinforcement_learning"]["hyperparameters"]["samples"]
         self.alpha = train_config["reinforcement_learning"]["hyperparameters"]["alpha"]
         self.add_gold = train_config["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
+        self.log_probabilities = train_config["reinforcement_learning"].get("log_probabilities", False)
 
         #if self.reinforcement_learning:
-        self.peakiness_logger = make_retro_logger("{}/peakiness.log".format(self.model_dir), "peakiness_logger")
         self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
-        self.reranking_logger = make_retro_logger("{}/reranking.log".format(self.model_dir), "reranking_logger")
         self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
         self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
         self.reward_logger = make_retro_logger("{}/reward.log".format(self.model_dir), "reward_logger")
-        self.hallucination_logger = make_retro_logger("{}/hallucination.log".format(self.model_dir), "hallucination_logger")
-        self.all_rewards_logger = make_retro_logger("{}/all_rewards.log".format(self.model_dir), "all_rewards_logger")
 
         self.critic = None
         if self.method == "a2c":
@@ -542,7 +539,9 @@ class TrainManager:
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         max_output_length=self.max_output_length, 
                         temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
+                        samples=self.samples, alpha=self.alpha, 
+                        add_gold=self.add_gold, 
+                        log_probabilities=self.log_probabilities)
             
             else:
                 batch_loss, distribution, _, _ = self.model(
@@ -553,7 +552,9 @@ class TrainManager:
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         max_output_length=self.max_output_length,
                         temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha, add_gold=self.add_gold)
+                        samples=self.samples, alpha = self.alpha,
+                        add_gold=self.add_gold, 
+                        log_probabilities=self.log_probabilities)
 
             if self.method == "a2c":
                 losses = batch_loss
@@ -701,8 +702,8 @@ class TrainManager:
                     self.model_dir, self.stats.steps),
                 tb_writer=self.tb_writer, steps=self.stats.steps)
 
-        #if self.reinforcement_learning == True:
-        self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
+        if self.reinforcement_learning and self.log_probabilities:
+            self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
 
         return valid_duration
 
@@ -782,10 +783,6 @@ class TrainManager:
     def _log_reinforcement_learning(self, valid_logs, epoch_no, valid_hypotheses):
         entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
                     
-        self.reranking_logger.info(
-                "Epoch %3d Step: %8d \n",
-                epoch_no + 1, self.stats.steps)
-
         self.probability_logger.info(
                 "Epoch %3d Step: %8d \n",
                 epoch_no + 1, self.stats.steps)
@@ -793,15 +790,6 @@ class TrainManager:
         self.reward_logger.info(
                 "Epoch %3d Step: %8d \n",
                 epoch_no + 1, self.stats.steps)
-
-        self.hallucination_logger.info(
-                "Epoch %3d Step: %8d \n",
-                epoch_no + 1, self.stats.steps)
-
-        self.peakiness_logger.info( 
-            "Peakiness and entropy \n"
-            "Epoch %3d Step: %8d",
-            epoch_no + 1, self.stats.steps)
 
         self.entropy_logger.info(
                 "Epoch %3d Step: %8d \n"
@@ -817,91 +805,26 @@ class TrainManager:
         if self.method == "a2c":
             with open(self.model_dir+"/reward.pickle", "wb") as f:
                 pickle.dump(rewards, f)
-            """
-            sumed_rewards = []
-            
-            average_rewards = []
-            for batch_rewards in rewards: 
-                sumed_rewards.extend(sum(batch_rewards).tolist())
-                average_rewards.extend((sum(batch_rewards)/len(batch_rewards)).tolist())
-            self.reward_logger.info(
-                "Sum Rewards: \n"
-                "Sum Mean reward %2.4f \n"
-                "Sum Std reward %2.4f \n" 
-                "Sum Variance reward %2.4f \n"
-                "\n"
-                "Average Rewards: \n"
-                "Average Mean reward %2.4f \n"
-                "Average Std reward %2.4f \n" 
-                "Average Variance reward %2.4f \n"
-                "\n"
-                "Original score: \n"
-                "Mean score %2.4f \n"
-                "Std score %2.4f \n" 
-                "Variance score %2.4f \n",
-                np.mean(sumed_rewards), np.std(sumed_rewards), np.var(sumed_rewards), np.mean(average_rewards), 
-                np.std(average_rewards), np.var(average_rewards), np.mean(old_bleus), np.std(old_bleus), np.var(old_bleus))
-                """
         
-        elif self.method == "reinforce": 
-            all_rewards = []
-            for reward_list in rewards: 
-                all_rewards.extend(reward_list)
-            self.reward_logger.info(
-            "Rewards: \n"
-            "Mean reward %2.4f \n"
-            "Std reward %2.4f \n" 
-            "Variance reward %2.4f \n"
-            "\n"
-            "Original score: \n"
-            "Mean score %2.4f \n"
-            "Std score %2.4f \n" 
-            "Variance score %2.4f \n",
-            np.mean(all_rewards), np.std(all_rewards), np.var(all_rewards), np.mean(old_bleus), np.std(old_bleus), np.var(old_bleus)
-                )
+        total_probability = [torch.stack(el) for el in total_probability if el != []]
+        highest_prob = [torch.stack(el) for el in highest_prob if el != []]
+        gold_probabilities = [torch.stack(el) for el in gold_probabilities if el != []]
 
-        """
-        for sentence_index in range(len(valid_hypotheses)):
-            self.hallucination_logger.info(
-                    "\n"
-                    "Reference: %s \n"
-                    "Hypothesis: %s \n"
-                    , 
-                gold_strings[sentence_index], predicted_strings[sentence_index])
-        # log rewards
-        """
-        # calculate average probabilities
-        average_total_prob=0
-        if len(total_probability) != 0:
-            for sent_index in range(len(total_probability)):
-                if len(total_probability[sent_index]) != 0:
-                    average_total_prob += sum(total_probability[sent_index])/(len(total_probability[sent_index]))
-            average_total_prob = average_total_prob/len(total_probability)
-
-        average_highest_prob=0
-        if len(highest_prob) != 0:
-            for sent_index in range(len(highest_prob)):
-                if len(highest_prob[sent_index]) != 0:
-                    average_highest_prob += sum(highest_prob[sent_index])/(len(highest_prob[sent_index]))
-            average_highest_prob = average_highest_prob/len(highest_prob)
-        average_gold_prob=0
-        if len(gold_probabilities) !=0:
-            for sent_index in range(len(gold_probabilities)):
-                if len(gold_probabilities[sent_index]) != 0:
-                    average_gold_prob += sum(gold_probabilities[sent_index])/(len(gold_probabilities[sent_index]))
-            average_gold_prob = average_gold_prob/len(gold_probabilities)
-
-        # log average probabilities
+        average_total_prob = torch.mean(torch.stack([torch.mean(el) for el in total_probability]))
+        average_highest_prob = torch.mean(torch.stack([torch.mean(el) for el in highest_prob]))
+        average_gold_prob = torch.mean(torch.stack([torch.mean(el) for el in gold_probabilities]))
+        
         self.collected_top10_probability.append(total_probability)
         self.collected_highest_probability.append(highest_prob)
         self.collected_gold_probability.append(gold_probabilities)
         self.collected_gold_ranks.append(gold_token_ranks)
-
+        
         self.probability_logger.info(
-                "Average Top10 Probability: %2.4f \n"
-                "Average Highest Probability: %2.4f \n"
-                "Average Gold Probability: %2.4f \n",
+        "Average Top10 Probability: %2.4f \n"
+        "Average Highest Probability: %2.4f \n"
+        "Average Gold Probability: %2.4f \n", \
                 average_total_prob, average_highest_prob, average_gold_prob)
+        """
         with open(self.model_dir+"/top10.pickle", "wb") as f:
             pickle.dump(self.collected_top10_probability, f)
         with open(self.model_dir+"/highest_prob.pickle", "wb") as f:
@@ -910,36 +833,7 @@ class TrainManager:
             pickle.dump(self.collected_gold_probability, f)
         with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
             pickle.dump(self.collected_gold_ranks, f)
-            
-        """
-        for sentence_index in range(len(valid_hypotheses[:5])):
-            sentence_ranks = []
-            self.peakiness_logger.info("New example -----------------------------------------------: \n"
-                    "Reference: %s \n"
-                    "Hypothesis: %s \n"
-                    , 
-                gold_strings[sentence_index], predicted_strings[sentence_index])
-
-            self.reranking_logger.info("New example -----------------------------------------------: \n"
-                    "Reference: %s \n"
-                    "Hypothesis: %s \n"
-                    , 
-                gold_strings[sentence_index], predicted_strings[sentence_index])
-
-
-            for word_index in range(len(highest_words[sentence_index])):
-                # save the current rank of a word
-                word_ranks = {}
-                for rank, word in enumerate(highest_words[sentence_index][word_index][0]):
-                    word_ranks[rank] = word
-                sentence_ranks.append(word_ranks)
-                self.peakiness_logger.info("Most probable tokens: ' %s ' with a total probability of %3.6f \n"
-                    "Most probable token: %s with a probability of %3.6f",
-                    " ".join(highest_words[sentence_index][word_index][0]), total_probability[sentence_index][word_index], 
-                    highest_word[sentence_index][word_index], highest_prob[sentence_index][word_index])     
-            batch_ranks.append(sentence_ranks)
-        """
-        
+        """    
         # calculate and log tracking of the gold tokens 
         if self.epoch_gold_ranks != []:
             number_of_gold_tokens_below_topk = 0 
@@ -1087,37 +981,6 @@ class TrainManager:
                 number_of_rank_decreases_from_0, number_of_rank_decreases_from_top3, number_of_rank_decreases_from_top10,
                 total_gold_rank_increases, total_gold_rank_decreases, no_changes)
 
-
-        changed_rank_dict = {}
-        if self.epoch_ranks != []:
-            previous_batch_ranks = self.epoch_ranks[-1]
-            for sentence_ranks1, sentence_ranks2 in zip(batch_ranks, previous_batch_ranks):
-                for word_ranks1, word_ranks2 in zip(sentence_ranks1, sentence_ranks2):
-                    for rank1, rank2 in zip(word_ranks1, word_ranks2):
-                        if word_ranks1[rank1] != word_ranks2[rank2]:
-                            if rank1 in changed_rank_dict: 
-                                changed_rank_dict[rank1] += 1
-                            else: changed_rank_dict[rank1] = 1
-
-                # log individual rank changes
-                for word_ranks1, word_ranks2, sentence_gold_probs, gold_string in zip(sentence_ranks1[:5], sentence_ranks2[:5], gold_probabilities[0:5], gold_strings[0:5]):
-                    padded_sentence_gold_probs = sentence_gold_probs + [99] * (len(word_ranks1) - len(sentence_gold_probs))
-                    gold_words =  gold_string.split()
-                    padded_gold_string = gold_words + ['pad'] * (len(word_ranks1) - len(gold_words))
-                    for rank1, rank2, gold_probability, gold_word in zip(word_ranks1, word_ranks2, padded_sentence_gold_probs, padded_gold_string):
-                        self.reranking_logger.info("gold word '%s' with probability %2.4f  ",gold_word, gold_probability)
-
-                        if word_ranks1[rank1] != word_ranks2[rank2]:
-                            inverse_ranks1 = {v: k for k, v in word_ranks1.items()}
-                            word_to_track = word_ranks2[rank2]
-                            if word_to_track in inverse_ranks1:
-                                new_rank = inverse_ranks1[word_to_track]
-                            else: 
-                                new_rank = 900
-                            self.reranking_logger.info("rank of the token '%s' changed from %3d to %3d ",
-                            word_to_track, rank2, new_rank)
-
-            self.reranking_logger.info("Number of rank changes: %s", json.dumps(changed_rank_dict, indent=4, sort_keys=True) ) 
         self.epoch_ranks.append(batch_ranks)
         self.epoch_gold_ranks.append(gold_token_ranks)
 
