@@ -5,7 +5,14 @@
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Each algorithm is implemented for Transformer and for RNNs. 
+You can use each algorithm with the Transformer and RNN architecture. 
+
+## How to use 
+In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
+That means to effectively use the algorithms you have to pretrain a Transformer or RNN and then fine-tune the model with RL. 
+
+## Parameters
+The method and hyperparameters are specified in the config: 
 
 ## Currently WIP: 
 - clean repo  
@@ -13,7 +20,22 @@ Each algorithm is implemented for Transformer and for RNNs.
 - vectorize loops  
 - fix NED-A2C for Transformer
 
+## Installation
+Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
 
+A. [*Now also directly with pip!*](https://pypi.org/project/joeynmt/)
+  `pip install joeynmt`
+  
+B. From source
+  1. Clone this repository:
+  `git clone https://github.com/joeynmt/joeynmt.git`
+  2. Install joeynmt and it's requirements:
+  `cd joeynmt`
+  `pip3 install .` (you might want to add `--user` for a local installation).
+  3. Run the unit tests:
+  `python3 -m unittest`
+
+**Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 ## Reference
 If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
