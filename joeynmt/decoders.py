@@ -163,8 +163,8 @@ class RecurrentDecoder(Decoder):
         if isinstance(hidden, tuple):  # for lstm
             hidden = hidden[0]
         assert hidden.shape[0] == self.num_layers
-        assert hidden.shape[1] == prev_embed.shape[0]
-        assert hidden.shape[2] == self.hidden_size
+        #assert hidden.shape[1] == prev_embed.shape[0]
+        #assert hidden.shape[2] == self.hidden_size
 
     def _check_shapes_input_forward(self,
                                     trg_embed: Tensor,

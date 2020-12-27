@@ -133,9 +133,10 @@ class Model(nn.Module):
    
     def reinforce_transformer(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
                         src_length: Tensor, temperature: float, log_probabilities: bool) -> Tensor:
-        encoder_output, encoder_hidden = self._encode(
-            src, src_length,
+
+        encoder_output, encoder_hidden = self._encode(src, src_length,
             src_mask)
+
         # if maximum output length is not globally specified, adapt to src len
         if max_output_length is None:
             max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
@@ -144,18 +145,16 @@ class Model(nn.Module):
         trg_mask = src_mask.new_ones([1, 1, 1])
         distributions = []
         log_probs = 0
-        # rnn 
+        # init hidden state in case of using rnn decoder  
         hidden = self.decoder._init_hidden(encoder_hidden) \
             if hasattr(self.decoder,'_init_hidden') else 0
-        #hidden = 0
         attention_vectors = None
-        #log_probs = torch.FloatTensor([0]*batch_size)
-        #log_probs.requires_grad=True
+
         finished = src_mask.new_zeros((batch_size)).byte()
         for i in range(max_output_length):
-            #previous_words = ys[:, -1].view(-1, 1)
+            previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
-                trg_embed=self.trg_embed(ys),
+                trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
                 encoder_hidden=encoder_hidden,
                 src_mask=src_mask,
@@ -264,19 +263,19 @@ class Model(nn.Module):
         collect_gold_probs = 0 
         distributions = []
         
-
-        
-        hidden = self.decoder._init_hidden(encoder_hidden) \
-            if hasattr(self.decoder,'_init_hidden') else 0
         attention_vectors = None
 
+        encoder_output = encoder_output.repeat(samples,1,1)
+        if hasattr(self.decoder,'_init_hidden'):
+            hidden = (self.decoder._init_hidden(encoder_hidden)) 
+            hidden = (hidden[0].repeat(1,samples,1), hidden[1].repeat(1,samples,1)) 
+        else:
+            hidden = (0,0)
         # repeat tensor for vectorized solution
         ys = ys.repeat(samples, 1)
         src_mask = src_mask.repeat(samples,1,1)
-        encoder_output = encoder_output.repeat(samples,1,1)
-        encoder_hidden = encoder_hidden.repeat(samples, 1,1)
 
-
+        """
         for i in range(max_output_length):
             logits, hidden, attention_scores, attention_vectors = self.decoder(
             trg_embed=self.trg_embed(ys),
@@ -287,6 +286,20 @@ class Model(nn.Module):
             hidden=hidden,
             trg_mask=trg_mask
             )
+        """
+        for i in range(max_output_length):
+            previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
+            logits, hidden, attention_scores, attention_vectors = self.decoder(
+                trg_embed=self.trg_embed(previous_words),
+                encoder_output=encoder_output,
+                encoder_hidden=encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=hidden,
+                prev_att_vector=attention_vectors,
+                trg_mask=trg_mask
+            )
+
             logits = logits[:, -1]/temperature
             distrib = Categorical(logits=logits)
             probabilities = distrib.probs
@@ -341,9 +354,6 @@ class Model(nn.Module):
             trg, batch_size, max_output_length, gold_strings, predicted_sentences, \
                 Qs_to_return, rewards, mrt=True, samples=samples)) \
                 if log_probabilities else (batch_loss, [])
-
-        
-
 
     def mrt(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
              src_length: Tensor,  temperature: float, samples: int, alpha: float,
@@ -445,22 +455,22 @@ class Model(nn.Module):
     def a2c_transformer(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
                         src_length: Tensor, temperature: float, critic: nn.Module, log_probabilities: bool) \
             -> Tensor:
+
+        if max_output_length is None:
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        
+        batch_size = src_mask.size(0) 
+        trg_mask = src_mask.new_ones([1, 1, 1])
+        
+        # init actor parameters
         encoder_output, encoder_hidden = self._encode(
             src, src_length,
             src_mask)
-        # if maximum output length is not globally specified, adapt to src len
-        if max_output_length is None:
-            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
-        batch_size = src_mask.size(0)
+        hidden = (self.decoder._init_hidden(encoder_hidden)) \
+            if hasattr(self.decoder,'_init_hidden') else (0,0)
+        attention_vectors= None 
         ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
-        trg_mask = src_mask.new_ones([1, 1, 1])
         
-        actor_hidden = self.decoder._init_hidden(encoder_hidden) \
-            if hasattr(self.decoder,'_init_hidden') else 0
-        entropy = 0 
-        targets = trg.tolist()
-        output = []
-        top_words = []
         log_probs = 0
         distributions = []
         actor_log_probabs = []
@@ -470,15 +480,18 @@ class Model(nn.Module):
         critic_encoder_output, critic_encoder_hidden = critic._encode(
                 src, src_length,
                 src_mask)
-        critic_hidden = self.decoder._init_hidden(encoder_hidden) \
-            if hasattr(self.decoder,'_init_hidden') else 0
+        critic_hidden = (self.decoder._init_hidden(critic_encoder_hidden)) \
+            if hasattr(self.decoder,'_init_hidden') else (0,0)
         critic_logits = []
         critic_sequence = critic_encoder_output.new_full(size=[batch_size, 1], fill_value=self.bos_index,
                                     dtype=torch.long)
+        critic_attention_vectors = None
+
         #init dict to track eos
         eos_dict = {i:-1 for i in range(batch_size)}
 
         finished = src_mask.new_zeros((batch_size)).byte()
+        """
         for i in range(max_output_length):
             logits, out, _, _ = self.decoder(
                 trg_embed=self.trg_embed(ys),
@@ -489,14 +502,26 @@ class Model(nn.Module):
                 hidden=None,
                 trg_mask=trg_mask
             )
+        """
+        for i in range(max_output_length):
+            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
+            previous_words = ys[:, -1].view(-1, 1)
+            logits, hidden, attention_scores, attention_vectors = self.decoder(
+                trg_embed=self.trg_embed(previous_words),
+                encoder_output=encoder_output,
+                encoder_hidden=encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=hidden,
+                prev_att_vector=attention_vectors,
+                trg_mask=trg_mask
+            )
+
             logits = logits[:, -1]/temperature
             distrib = Categorical(logits=logits)
             distributions.append(distrib)
             probabilities = distrib.probs
-            
-            top100_probs, top100_probs_probs_index = probabilities.topk(100, largest=True, sorted=True)
-                    
-            
+
             word = distrib.sample()
             sampled_word = word
             log_probs -= distrib.log_prob(sampled_word)
@@ -504,11 +529,14 @@ class Model(nn.Module):
             ys = torch.cat([ys, sampled_word.unsqueeze(-1)], dim=1)
             actor_log_probabs.append(log_probs)
             sampled_word_list = sampled_word.tolist()
+            
             for index in range(len(sampled_word_list)):
-                if torch.eq(sampled_word_list[index] == self.eos_index):
-                    eos_dict[index] = i if eos_dict[index] == -1 
-                        
+                if sampled_word_list[index] == self.eos_index:
+                    if eos_dict[index] == -1:
+                        eos_dict[index] = i 
+            
             # unroll critic
+            """
             critic_logit, _, _, _ = critic.decoder(
                 encoder_output=critic_encoder_output,
                 encoder_hidden=None,
@@ -519,10 +547,24 @@ class Model(nn.Module):
                 unroll_steps=None,
                 trg_mask=trg_mask
             )
+            """
+
+            critic_logit, critic_hidden, critic_attention_scores, critic_attention_vectors = critic.decoder(
+                trg_embed=self.trg_embed(sampled_word.view(-1,1)),
+                encoder_output=critic_encoder_output,
+                encoder_hidden=critic_encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=critic_hidden,
+                prev_att_vector=critic_attention_vectors,
+                trg_mask=trg_mask
+            )
 
             critic_logits.append(critic_logit)
             critic_distrib =  Categorical(logits = critic_logit.view(-1, critic_logit.size(-1)))
             critic_sample = critic_distrib.sample()
+            #print('critic sample ', critic_sample.shape)
+            #print('critic sequence ', critic_sequence.shape)
             critic_sequence = torch.cat([critic_sequence, critic_sample.view(-1, 1)], -1)
             # check if previous symbol was <eos>
             is_eos = torch.eq(sampled_word, self.eos_index)
@@ -532,29 +574,41 @@ class Model(nn.Module):
                 break
 
         ys = ys[:, 1:]
+
+        
+        # calculate rewards
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
                                                         cut_at_eos=True)
         gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                     cut_at_eos=True)
-        predicted_strings = [self.join_strings(wordlist) for wordlist in predicted_output]
-        gold_strings = [self.join_strings(wordlist) for wordlist in gold_output]
+        predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
+        gold_strings = [join_strings(wordlist) for wordlist in gold_output]
         bleu_scores = []
         for prediction, gold_ref in zip(predicted_strings, gold_strings):
             bleu_scores.append(bleu([prediction], [gold_ref]))
+        bleu_tensor = torch.FloatTensor(bleu_scores).unsqueeze(1).cuda()
         critic_logits_tensor = torch.stack(critic_logits)
-
-        # clean critic logits
-        for dict_index in eos_dict:
-            critic_logits_tensor[eos_dict[dict_index]:,dict_index] = bleu_scores[dict_index]
+        #critic_logits_tensor = torch.squeeze(torch.squeeze(torch.stack(critic_logits), 3),1) \
+        #        if hasattr(self.decoder, '_init_hidden') else torch.stack(critic_logits)
+        #print('bleu ', bleu_scores)
+        #print('critc ', critic_logits_tensor.shape)
+        #print('eos dict ', eos_dict)
+        #for dict_index in eos_dict:
+        #    critic_logits_tensor[eos_dict[dict_index]:,dict_index] = bleu_scores[dict_index]
         critic_logits = torch.unbind(critic_logits_tensor)
-        bleu_tensor = torch.FloatTensor(bleu_scores).unsqueeze(1)
-        critic_loss = torch.cat([torch.pow(bleu_tensor-logit, 2) for logit in critic_logits]).sum()
+
         rewards = [(bleu_tensor-logit).squeeze(1) for logit in critic_logits]
+
+        # calculate critic loss 
+        critic_loss = torch.cat([torch.pow(bleu_tensor-logit, 2) for logit in critic_logits]).sum()
+
+        # calculate actor loss 
         batch_loss = 0
         for log_prob, critic_logit in zip(actor_log_probabs, critic_logits):
             batch_loss += log_prob.unsqueeze(1)*(bleu_tensor-critic_logit)
         batch_loss = batch_loss.sum()
-        return ([batch_loss, critic_loss], self.log_data(distributions, trg, batch_size, 
+
+        return ([batch_loss, critic_loss], log_peakiness(distributions, trg, batch_size, 
         max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
         if log_probabilities else ([batch_loss, critic_loss], [])
 
@@ -588,7 +642,6 @@ class Model(nn.Module):
         gold_token_ranks = [[] for i in range(batch_size)]
 
         entropy = 0 
-        targets = trg.tolist()
         distributions = []
         top_words = []
         actor_log_probabs = []
@@ -692,7 +745,7 @@ class Model(nn.Module):
             batch_loss += log_prob.unsqueeze(1)*(bleu_tensor-critic_logit)
         batch_loss = batch_loss.sum()
 
-        return ([batch_loss, critic_loss], log_peakiness(distributions, trg, batch_size, 
+        return ([batch_loss, critic_loss], self.log_data(distributions, trg, batch_size, 
         max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
         if log_probabilities else ([batch_loss, critic_loss], [])
 
@@ -745,7 +798,7 @@ class Model(nn.Module):
             return_tuple = (batch_loss, None, None, None)
 
         elif return_type == "reinforce":
-            loss, logging = self.reinforce(
+            loss, logging = self.reinforce_transformer(
             src=kwargs["src"],
             trg=kwargs["trg"],
             src_mask=kwargs["src_mask"],
@@ -812,7 +865,7 @@ class Model(nn.Module):
             return_tuple = (loss, logging, None, None)
 
         elif return_type == "a2c":
-            loss, logging = self.a2c(
+            loss, logging = self.a2c_transformer(
             critic=kwargs["critic"],
             src=kwargs["src"],
             trg=kwargs["trg"],
