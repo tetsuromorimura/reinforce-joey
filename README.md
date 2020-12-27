@@ -1,4 +1,6 @@
-# &nbsp; ![Reinforce-Joey](joey-small.png) Joey NMT
+This is a fork of the awesome [Joey-NMT](https://github.com/joeynmt/joeynmt) which implements Reinforcement Learning algorithms like Policy Gradient, MRT and Advantage Actor Critic.  
+
+# &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
 
 ## Implemented algorithms:  
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
@@ -12,13 +14,14 @@ In general cold-starting a model with Reinforcement Learning does not work too w
 That means to effectively use the algorithms you have to pretrain a Transformer or RNN and then fine-tune the model with RL. 
 
 ## Parameters
-The method and hyperparameters are specified in the config: 
+The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
 
 ## Currently WIP: 
 - clean repo  
-- rework logging  
+- rework logging 
 - vectorize loops  
 - fix NED-A2C for Transformer
+- explain hyperparameters
 
 ## Installation
 Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
