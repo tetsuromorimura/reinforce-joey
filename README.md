@@ -11,10 +11,28 @@ You can use each algorithm with the Transformer and RNN architecture.
 
 ## How to use 
 In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
-That means to effectively use the algorithms you have to pretrain a Transformer or RNN and then fine-tune the model with RL. 
+That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune the model with RL. 
 
 ## Parameters
-The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
+The RL-method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
+Here a short explanation for the individual parameters.  
+* All methods: 
+  * temperature: Softmax temperature parameter. Decreasing results in a 'peakier' distribution and more exploitation while increasing leads to more exploration.  
+* Policy Gradient/Reinforce:   
+  * reward: 
+    * bleu: standard corpus_bleu from sacrebleu
+    * scaled_bleu: scales the BLEU locally for each batch to the interval [-0.5, 0.5]
+    * constant: constant reward of 1 
+  * baseline: 
+    * False: no baseline
+    * average_reward_baseline: subtracts a running average of all BLEUs from the rewards
+    * learned_reward_baseline: learns a two-layer regression network to estimate the BLEUs   
+* MRT:  
+  * add_gold: adds gold/reference to sample space
+  * samples: number of samples
+  * alpha: smoothness parameter 
+  Advantage Actor-Critic:  
+* critic_learning_rate: learnign rate of critic network
 
 ## Currently WIP: 
 - clean repo  
