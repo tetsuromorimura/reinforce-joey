@@ -1,45 +1,44 @@
-This is a fork of the awesome [Joey-NMT](https://github.com/joeynmt/joeynmt) which implements Reinforcement Learning algorithms like Policy Gradient, MRT and Advantage Actor Critic.  
-
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
 
 ## Implemented algorithms:  
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
-- Advantage Actor-Critic as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
+- Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-You can use each algorithm with the Transformer and RNN architecture. 
+The forward pass of each method can be found here: 
+[REINFORCE](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L145), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L243)   
+
+Each algorithm can be used with the Transformer and the RNN architecture. 
 
 ## How to use 
 In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
-That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune the model with RL. 
+That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune with RL. 
 
 ## Parameters
-The RL-method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
-Here a short explanation for the individual parameters.  
+The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
+Here a short explanation of the parameters.  
 * All methods: 
   * temperature: Softmax temperature parameter. Decreasing results in a 'peakier' distribution and more exploitation while increasing leads to more exploration.  
 * Policy Gradient/Reinforce:   
   * reward: 
     * bleu: standard corpus_bleu from sacrebleu
-    * scaled_bleu: scales the BLEU locally for each batch to the interval [-0.5, 0.5]
+    * scaled_bleu: scales the BLEU locally to the interval [-0.5, 0.5] for each batch
     * constant: constant reward of 1 
   * baseline: 
     * False: no baseline
-    * average_reward_baseline: subtracts a running average of all BLEUs from the rewards
+    * average_reward_baseline: subtracts a running average of all previous BLEUs from the rewards
     * learned_reward_baseline: learns a two-layer regression network to estimate the BLEUs   
 * MRT:  
   * add_gold: adds gold/reference to sample space
   * samples: number of samples
-  * alpha: smoothness parameter 
+  * alpha: mrt smoothness parameter 
   Advantage Actor-Critic:  
-* critic_learning_rate: learnign rate of critic network
+* critic_learning_rate: learning rate of critic network
 
 ## Currently WIP: 
-- clean repo  
-- rework logging 
-- vectorize loops  
 - fix NED-A2C for Transformer
-- explain hyperparameters
+- improve logging/add more options 
+- add learned baseline parameters to config
 
 ## Installation
 Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
