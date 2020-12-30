@@ -12,7 +12,7 @@ from joeynmt.attention import BahdanauAttention, LuongAttention
 from joeynmt.encoders import Encoder
 from joeynmt.helpers import freeze_params, ConfigurationError, subsequent_mask
 from joeynmt.transformer_layers import PositionalEncoding, \
-    TransformerDecoderLayer
+    TransformerDecoderLayer 
 
 
 # pylint: disable=abstract-method
@@ -500,6 +500,7 @@ class CriticDecoder(Decoder):
 
         self.output_layer = nn.Linear(hidden_size, 1, bias=False)
         self._output_size = 1
+        #self.final_layer = nn.Linear(1000, 1, bias=False)
 
         if attention == "bahdanau":
             self.attention = BahdanauAttention(hidden_size=hidden_size,
@@ -775,6 +776,7 @@ class CriticDecoder(Decoder):
         #outputs = self.output_layer(att_vectors)
         # outputs: batch, unroll_steps, vocab_size
         outputs = self.output_layer(hidden[-1])
+        #outputs = self.final_layer(outputs)
         return outputs, hidden, att_probs, att_vectors
 
     def _init_hidden(self, encoder_final: Tensor = None) \
@@ -961,13 +963,13 @@ class CriticTransformerDecoder(Decoder):
         # create num_layers decoder layers and put them in a list
         self.layers = nn.ModuleList([TransformerDecoderLayer(
                 size=hidden_size, ff_size=ff_size, num_heads=num_heads,
-                dropout=dropout) for _ in range(num_layers)])
-
+                dropout=dropout) for _ in range(num_layers-1)])
         self.pe = PositionalEncoding(hidden_size)
         self.layer_norm = nn.LayerNorm(hidden_size, eps=1e-6)
 
         self.emb_dropout = nn.Dropout(p=emb_dropout)
-        self.output_layer = nn.Linear(hidden_size, 1, bias=False)
+        self.output_layer = nn.Linear(hidden_size,1, bias=True)
+        #self.final_layer = nn.Linear(1000, 1, bias=False)
 
         if freeze:
             freeze_params(self)
@@ -1003,13 +1005,15 @@ class CriticTransformerDecoder(Decoder):
         trg_mask = trg_mask & subsequent_mask(
             trg_embed.size(1)).type_as(trg_mask)
 
+        inbetween_layers = []
         for layer in self.layers:
             x = layer(x=x, memory=encoder_output,
                       src_mask=src_mask, trg_mask=trg_mask)
+            inbetween_layers.append(x)
 
         x = self.layer_norm(x)
         output = self.output_layer(x)
-
+        #output = self.final_layer(output)
         return output, x, None, None
 
     def __repr__(self):

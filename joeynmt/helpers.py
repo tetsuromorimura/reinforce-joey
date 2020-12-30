@@ -366,7 +366,6 @@ def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output
         sentence_highest_probability = [[] for i in range(batch_size*samples)]
         gold_probabilities = [[] for i in range(batch_size*samples)]
         gold_token_ranks = [[] for i in range(batch_size*samples)]
-        entropy = 0 
         for i, distrib in enumerate(distribs):
             probabilities = distrib.probs            
             topk_probs, topk_probs_probs_index = probabilities.topk(k, largest=True, sorted=True)
@@ -382,7 +381,7 @@ def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output
                             gold_token_ranks[index].append(topk_probs_probs_index.tolist()[index].index(token))
                         else:   
                             gold_token_ranks[index].append(900)
-            current_entropy = distrib.entropy().mean(0)
+            #current_entropy = torch.mean(distrib.entropy())
             highest_probs, highest_probs_index = probabilities.topk(10 ,largest=True, sorted=True)
             top_ten_probabilities = torch.sum(highest_probs, axis=1)
             highest_prob, highest_prob_index = probabilities.topk(1, largest=True)
@@ -394,7 +393,8 @@ def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output
                     sentence_highest_words[index].append(highest_words[index])
                     sentence_highest_word[index].append(highest_word[index])
                     sentence_highest_probability[index].append(highest_prob[index])
-            entropy += current_entropy
+            #entropy += current_entropy
+        entropy = torch.mean(torch.stack([torch.mean(distrib.entropy()) for distrib in distribs]))
         return [entropy, gold_strings, predicted_strings, sentence_highest_words, sentence_probability, sentence_highest_word, sentence_highest_probability, gold_probabilities, gold_token_ranks, rewards, old_bleus]
 
 def join_strings(wordlist):

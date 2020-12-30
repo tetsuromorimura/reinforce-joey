@@ -272,3 +272,4 @@ class TransformerDecoderLayer(nn.Module):
         o = self.feed_forward(self.dropout(h2) + h1)
 
         return o
+

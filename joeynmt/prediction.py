@@ -99,6 +99,7 @@ def validate_on_data(model: Model, data: Dataset,
     temperature = config["training"]["reinforcement_learning"]["hyperparameters"]["temperature"]
     add_gold = config["training"]["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
     log_probabilities = config["training"]["reinforcement_learning"].get("log_probabilities", False)
+    topk = config["training"]["reinforcement_learning"].get("topk", 20)
 
     model.eval()
     # don't track gradients during validation
@@ -121,25 +122,16 @@ def validate_on_data(model: Model, data: Dataset,
 
             # run as during training with teacher forcing
             if compute_loss and batch.trg is not None:
-                if reinforcement_learning: 
-                    if config["model"]["encoder"].get("type", "recurrent") == "transformer":
-                        batch_loss, distribution, _, _ = model(
-                                return_type="transformer_"+method, max_output_length=max_output_length, 
-                                src=batch.src, trg=batch.trg,
-                                trg_input=batch.trg_input, src_mask=batch.src_mask,
-                                src_length=batch.src_length, trg_mask=batch.trg_mask,
-                                temperature = temperature, 
-                                samples=samples, alpha = alpha, add_gold=add_gold,
-                                critic=critic, log_probabilities=log_probabilities)
-                    else:
-                        batch_loss, distribution, _, _ = model(
-                                return_type=method, max_output_length=max_output_length,
-                                src=batch.src, trg=batch.trg,
-                                trg_input=batch.trg_input, src_mask=batch.src_mask,
-                                src_length=batch.src_length, trg_mask=batch.trg_mask,
-                                temperature = temperature, 
-                                samples=samples, alpha = alpha, add_gold=add_gold,
-                                critic=critic, log_probabilities=log_probabilities)
+                if reinforcement_learning:  
+                    batch_loss, distribution, _, _ = model(
+                        return_type=method, max_output_length=max_output_length,
+                        src=batch.src, trg=batch.trg,
+                        trg_input=batch.trg_input, src_mask=batch.src_mask,
+                        src_length=batch.src_length, trg_mask=batch.trg_mask,
+                        temperature = temperature,
+                        topk = topk, 
+                        samples=samples, alpha = alpha, add_gold=add_gold,
+                        critic=critic, log_probabilities=log_probabilities)
                     if method == "a2c":
                         losses = batch_loss
                         batch_loss = losses[0] 

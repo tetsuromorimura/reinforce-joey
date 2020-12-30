@@ -74,21 +74,21 @@ class TrainManager:
             log_dir=self.model_dir + "/tensorboard/")
 
         # reinforcement learning parameters
-        self.reinforcement_learning = train_config["reinforcement_learning"]["use_reinforcement_learning"]
-        self.temperature = train_config["reinforcement_learning"]["hyperparameters"]["temperature"]
+        self.reinforcement_learning = train_config["reinforcement_learning"].get("use_reinforcement_learning", False)
+        self.temperature = train_config["reinforcement_learning"]["hyperparameters"].get("temperature", 1)
         self.baseline = train_config["reinforcement_learning"]["hyperparameters"].get("baseline", False)
-        self.reward = train_config["reinforcement_learning"]["hyperparameters"]["reward"]
-        self.method = train_config["reinforcement_learning"]["method"]
-        self.samples = train_config["reinforcement_learning"]["hyperparameters"]["samples"]
-        self.alpha = train_config["reinforcement_learning"]["hyperparameters"]["alpha"]
+        self.reward = train_config["reinforcement_learning"]["hyperparameters"].get("reward", 'bleu')
+        self.method = train_config["reinforcement_learning"].get("method", 'reinforce')
+        self.samples = train_config["reinforcement_learning"]["hyperparameters"].get("samples", 5)
+        self.alpha = train_config["reinforcement_learning"]["hyperparameters"].get("alpha", 0.005)
         self.add_gold = train_config["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
         self.log_probabilities = train_config["reinforcement_learning"].get("log_probabilities", False)
+        self.topk = train_config["reinforcement_learning"].get("topk", 20)
 
-        #if self.reinforcement_learning:
-        self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
-        self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
-        self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
-        self.reward_logger = make_retro_logger("{}/reward.log".format(self.model_dir), "reward_logger")
+        if self.log_probabilities:
+            self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
+            self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
+            self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
 
         self.critic = None
         if self.method == "a2c":
@@ -312,7 +312,8 @@ class TrainManager:
         """
         logger.info("Loading model from %s", path)
         model_checkpoint = load_checkpoint(path=path, use_cuda=self.use_cuda)
-        if self.method == "learned_reward_baseline":
+        if self.baseline == "learned_reward_baseline":
+            # TODO put learned baseline parameters in config
             padding_size = 180
             hidden_size = 200
             l1 = nn.Linear(padding_size, hidden_size)
@@ -530,31 +531,18 @@ class TrainManager:
 
         # get loss
         if self.reinforcement_learning: 
-            if self.config["model"]["encoder"].get("type", "recurrent") == "transformer":
-                batch_loss, distribution, _, _ = self.model(
-                        critic=self.critic,
-                        return_type="transformer_"+self.method, 
-                        src=batch.src, trg=batch.trg,
-                        trg_input=batch.trg_input, src_mask=batch.src_mask,
-                        src_length=batch.src_length, trg_mask=batch.trg_mask,
-                        max_output_length=self.max_output_length, 
-                        temperature = self.temperature, 
-                        samples=self.samples, alpha=self.alpha, 
-                        add_gold=self.add_gold, 
-                        log_probabilities=self.log_probabilities)
-            
-            else:
-                batch_loss, distribution, _, _ = self.model(
-                        return_type=self.method, 
-                        critic=self.critic,
-                        src=batch.src, trg=batch.trg,
-                        trg_input=batch.trg_input, src_mask=batch.src_mask,
-                        src_length=batch.src_length, trg_mask=batch.trg_mask,
-                        max_output_length=self.max_output_length,
-                        temperature = self.temperature, 
-                        samples=self.samples, alpha = self.alpha,
-                        add_gold=self.add_gold, 
-                        log_probabilities=self.log_probabilities)
+            batch_loss, distribution, _, _ = self.model(
+            return_type=self.method, 
+            critic=self.critic,
+            src=batch.src, trg=batch.trg,
+            trg_input=batch.trg_input, src_mask=batch.src_mask,
+            src_length=batch.src_length, trg_mask=batch.trg_mask,
+            max_output_length=self.max_output_length,
+            temperature = self.temperature, 
+            samples=self.samples, alpha = self.alpha,
+            add_gold=self.add_gold,
+            topk=self.topk,
+            log_probabilities=self.log_probabilities)
 
             if self.method == "a2c":
                 losses = batch_loss
@@ -615,7 +603,6 @@ class TrainManager:
 
     def _validate(self, valid_data, epoch_no):
         valid_start_time = time.time()
-
         valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
         valid_hypotheses_raw, valid_attention_scores, valid_logs = \
@@ -781,13 +768,10 @@ class TrainManager:
             logger.info("\tHypothesis: %s", hypotheses[p])
 
     def _log_reinforcement_learning(self, valid_logs, epoch_no, valid_hypotheses):
-        entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
+        entropy, gold_strings, predicted_strings, highest_words, total_probability, \
+                highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
                     
         self.probability_logger.info(
-                "Epoch %3d Step: %8d \n",
-                epoch_no + 1, self.stats.steps)
-
-        self.reward_logger.info(
                 "Epoch %3d Step: %8d \n",
                 epoch_no + 1, self.stats.steps)
 
@@ -801,11 +785,7 @@ class TrainManager:
                 epoch_no + 1, self.stats.steps)
 
         batch_ranks = []
-        # log rewards 
-        if self.method == "a2c":
-            with open(self.model_dir+"/reward.pickle", "wb") as f:
-                pickle.dump(rewards, f)
-        
+
         total_probability = [torch.stack(el) for el in total_probability if el != []]
         highest_prob = [torch.stack(el) for el in highest_prob if el != []]
         gold_probabilities = [torch.stack(el) for el in gold_probabilities if el != []]
@@ -921,14 +901,12 @@ class TrainManager:
                             number_of_rank_increases_from_below_topk_to_top3 += 1
                         if previous_gold_rank < 900 and previous_gold_rank > 10 and current_gold_rank <= 3:
                             number_of_rank_increases_from_below_top10_to_top3 +=1
-
                         if previous_gold_rank > 0 and current_gold_rank ==0:
                             number_of_rank_increases_to_0+=1
                         if previous_gold_rank > 3 and current_gold_rank <= 3:
                             number_of_rank_increases_to_top3 += 1
                         if previous_gold_rank > 10 and current_gold_rank <= 10:
                             number_of_rank_increases_to_top10+=1  
-
                         if previous_gold_rank == 0 and current_gold_rank > 0:
                             number_of_rank_decreases_from_0+=1
                         if previous_gold_rank <= 3 and current_gold_rank > 3:
