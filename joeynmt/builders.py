@@ -45,7 +45,7 @@ def build_gradient_clipper(config: dict) -> Optional[Callable]:
     return clip_grad_fun
 
 
-def build_optimizer(config: dict, parameters: Generator) -> Optimizer:
+def build_optimizer(config: dict, parameters: Generator, critic=False) -> Optimizer:
     """
     Create an optimizer for the given parameters as specified in config.
 
@@ -72,7 +72,10 @@ def build_optimizer(config: dict, parameters: Generator) -> Optimizer:
     :return: optimizer
     """
     optimizer_name = config.get("optimizer", "sgd").lower()
-    learning_rate = config.get("learning_rate", 3.0e-4)
+    if critic:
+        learning_rate = config["reinforcement_learning"]["hyperparameters"].get("critic_learning_rate", 3.0e-4)
+    else:
+        learning_rate = config.get("learning_rate", 3.0e-4)
     weight_decay = config.get("weight_decay", 0)
 
     if optimizer_name == "adam":

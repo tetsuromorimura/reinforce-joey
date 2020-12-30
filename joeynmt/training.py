@@ -12,6 +12,8 @@ import logging
 import os
 import sys
 import queue
+import pickle
+import json
 
 import numpy as np
 
@@ -25,10 +27,11 @@ from joeynmt.model import build_model
 from joeynmt.batch import Batch
 from joeynmt.helpers import log_data_info, load_config, log_cfg, \
     store_attention_plots, load_checkpoint, make_model_dir, \
-    make_logger, set_seed, symlink_update, ConfigurationError
+    make_logger, set_seed, symlink_update, ConfigurationError, \
+    make_retro_logger
 from joeynmt.model import Model, _DataParallel
 from joeynmt.prediction import validate_on_data
-from joeynmt.loss import XentLoss
+from joeynmt.loss import XentLoss, ReinforceLoss
 from joeynmt.data import load_data, make_data_iter
 from joeynmt.builders import build_optimizer, build_scheduler, \
     build_gradient_clipper
@@ -50,7 +53,7 @@ class TrainManager:
     """ Manages training loop, validations, learning rate scheduling
     and early stopping."""
 
-    def __init__(self, model: Model, config: dict) -> None:
+    def __init__(self, model: Model, config: dict, critic_model: Model =False) -> None:
         """
         Creates a new TrainManager for a model, specified as in configuration.
 
@@ -58,7 +61,9 @@ class TrainManager:
         :param config: dictionary containing the training configurations
         """
         train_config = config["training"]
-
+        self.config = config
+        # files for logging and storing
+        train_config = config["training"]
         # files for logging and storing
         self.model_dir = train_config["model_dir"]
         assert os.path.exists(self.model_dir)
@@ -68,14 +73,45 @@ class TrainManager:
         self.tb_writer = SummaryWriter(
             log_dir=self.model_dir + "/tensorboard/")
 
+        # reinforcement learning parameters
+        self.reinforcement_learning = train_config["reinforcement_learning"].get("use_reinforcement_learning", False)
+        self.temperature = train_config["reinforcement_learning"]["hyperparameters"].get("temperature", 1)
+        self.baseline = train_config["reinforcement_learning"]["hyperparameters"].get("baseline", False)
+        self.reward = train_config["reinforcement_learning"]["hyperparameters"].get("reward", 'bleu')
+        self.method = train_config["reinforcement_learning"].get("method", 'reinforce')
+        self.samples = train_config["reinforcement_learning"]["hyperparameters"].get("samples", 5)
+        self.alpha = train_config["reinforcement_learning"]["hyperparameters"].get("alpha", 0.005)
+        self.add_gold = train_config["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
+        self.log_probabilities = train_config["reinforcement_learning"].get("log_probabilities", False)
+        self.topk = train_config["reinforcement_learning"].get("topk", 20)
+
+        if self.log_probabilities:
+            self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
+            self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
+            self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
+
+        self.critic = None
+        if self.method == "a2c":
+            self.critic = critic_model
         # model
         self.model = model
         self._log_parameters_list()
 
         # objective
         self.label_smoothing = train_config.get("label_smoothing", 0.0)
-        self.model.loss_function = XentLoss(pad_index=self.model.pad_index,
-                                            smoothing=self.label_smoothing)
+
+        # CPU / GPU
+        self.use_cuda = train_config["use_cuda"] and torch.cuda.is_available()
+        self.n_gpu = torch.cuda.device_count() if self.use_cuda else 0
+        self.device = torch.device("cuda" if self.use_cuda else "cpu")
+
+        if self.reinforcement_learning:  
+            self.model.loss_function = ReinforceLoss(baseline=self.baseline, use_cuda=self.use_cuda, reward=self.reward)
+        else: 
+            self.model.loss_function = XentLoss(pad_index=self.model.pad_index,
+                                 smoothing=self.label_smoothing)
+        
+
         self.normalization = train_config.get("normalization", "batch")
         if self.normalization not in ["batch", "tokens", "none"]:
             raise ConfigurationError("Invalid normalization option."
@@ -88,6 +124,10 @@ class TrainManager:
         self.clip_grad_fun = build_gradient_clipper(config=train_config)
         self.optimizer = build_optimizer(config=train_config,
                                          parameters=model.parameters())
+
+        if self.method == "a2c":
+            self.critic_optimizer = build_optimizer(config=train_config,
+                                parameters=self.critic.parameters(), critic=True)
 
         # validation & early stopping
         self.validation_freq = train_config.get("validation_freq", 1000)
@@ -126,7 +166,7 @@ class TrainManager:
         # eval options
         test_config = config["testing"]
         self.bpe_type = test_config.get("bpe_type", "subword-nmt")
-        self.sacrebleu = {"remove_whitespace": True, "tokenizer": "13a"}
+        self.sacrebleu = {"remove_whitespace": True, "tokenize": "13a"}
         if "sacrebleu" in config["testing"].keys():
             self.sacrebleu["remove_whitespace"] = test_config["sacrebleu"] \
                 .get("remove_whitespace", True)
@@ -139,6 +179,13 @@ class TrainManager:
             scheduler_mode="min" if self.minimize_metric else "max",
             optimizer=self.optimizer,
             hidden_size=config["model"]["encoder"]["hidden_size"])
+
+        if self.method == "a2c":
+            self.critic_scheduler, self.critic_scheduler_step_at = build_scheduler(
+                config=train_config,
+                scheduler_mode="min" if self.minimize_metric else "max",
+                optimizer=self.critic_optimizer,
+                hidden_size=config["model"]["encoder"]["hidden_size"])
 
         # data & batch handling
         self.level = config["data"]["level"]
@@ -161,13 +208,10 @@ class TrainManager:
         # generation
         self.max_output_length = train_config.get("max_output_length", None)
 
-        # CPU / GPU
-        self.use_cuda = train_config["use_cuda"] and torch.cuda.is_available()
-        self.n_gpu = torch.cuda.device_count() if self.use_cuda else 0
-        self.device = torch.device("cuda" if self.use_cuda else "cpu")
         if self.use_cuda:
             self.model.cuda()
-
+            if self.method == "a2c":
+                self.critic.cuda()
         # fp16
         self.fp16 = train_config.get("fp16", False)
         if self.fp16:
@@ -268,7 +312,16 @@ class TrainManager:
         """
         logger.info("Loading model from %s", path)
         model_checkpoint = load_checkpoint(path=path, use_cuda=self.use_cuda)
-
+        if self.baseline == "learned_reward_baseline":
+            # TODO put learned baseline parameters in config
+            padding_size = 180
+            hidden_size = 200
+            l1 = nn.Linear(padding_size, hidden_size)
+            l2=nn.Linear(hidden_size, 1)
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"] = l1.weight
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"] = l1.bias
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"] = l2.weight
+            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"] = l2.bias
         # restore model and optimizer parameters
         self.model.load_state_dict(model_checkpoint["model_state"])
 
@@ -355,13 +408,31 @@ class TrainManager:
             self.batch_size//self.n_gpu if self.n_gpu > 1 else self.batch_size,
             self.batch_size * self.batch_multiplier)
 
+        self.epoch_ranks = []
+        self.epoch_gold_ranks = []
+        self.collected_top10_probability = []
+        self.collected_highest_probability = []
+        self.collected_gold_probability = []
+        self.collected_gold_ranks = []
+
         for epoch_no in range(self.epochs):
             logger.info("EPOCH %d", epoch_no + 1)
 
             if self.scheduler is not None and self.scheduler_step_at == "epoch":
                 self.scheduler.step(epoch=epoch_no)
 
+            logger.info("EPOCH %d", epoch_no + 1)
+
+            if self.scheduler is not None and self.scheduler_step_at == "epoch":
+                self.scheduler.step(epoch=epoch_no)
+
+            # validate before training begins
+            if self.stats.steps % self.validation_freq == 0:
+                self._validate(valid_data, epoch_no)
+                
             self.model.train()
+            if self.method == "a2c":
+                self.critic.train()
 
             # Reset statistics for each epoch.
             start = time.time()
@@ -455,12 +526,35 @@ class TrainManager:
         """
         # reactivate training
         self.model.train()
+        if self.method == "a2c":
+                self.critic.train()
 
         # get loss
-        batch_loss, _, _, _ = self.model(
-            return_type="loss", src=batch.src, trg=batch.trg,
+        if self.reinforcement_learning: 
+            batch_loss, distribution, _, _ = self.model(
+            return_type=self.method, 
+            critic=self.critic,
+            src=batch.src, trg=batch.trg,
             trg_input=batch.trg_input, src_mask=batch.src_mask,
-            src_length=batch.src_length, trg_mask=batch.trg_mask)
+            src_length=batch.src_length, trg_mask=batch.trg_mask,
+            max_output_length=self.max_output_length,
+            temperature = self.temperature, 
+            samples=self.samples, alpha = self.alpha,
+            add_gold=self.add_gold,
+            topk=self.topk,
+            log_probabilities=self.log_probabilities)
+
+            if self.method == "a2c":
+                losses = batch_loss
+                batch_loss = losses[0] 
+                critic_loss = losses[1] 
+
+        else:
+            batch_loss, distribution, _, _ = self.model(
+                return_type="loss", src=batch.src, trg=batch.trg,
+                trg_input=batch.trg_input, src_mask=batch.src_mask,
+                max_output_length=self.max_output_length,
+                src_length=batch.src_length, trg_mask=batch.trg_mask)
 
         # average on multi-gpu parallel training
         if self.n_gpu > 1:
@@ -479,17 +573,29 @@ class TrainManager:
                 "or summation of loss 'none' implemented")
 
         norm_batch_loss = batch_loss / normalizer
+        if self.method == "a2c":
+            norm_critic_loss = critic_loss / normalizer
 
         if self.batch_multiplier > 1:
             norm_batch_loss = norm_batch_loss / self.batch_multiplier
+            if self.method == "a2c":
+                norm_critic_loss = norm_critic_loss / self.batch_multiplier
 
         # accumulate gradients
         if self.fp16:
             with amp.scale_loss(norm_batch_loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
-            norm_batch_loss.backward()
-
+            norm_batch_loss.backward(retain_graph=True)
+        # perform critic backward and optimization step 
+        # TODO move out of fcn
+        if self.method == "a2c":
+            #norm_batch_loss.backward(retain_graph=True)
+            norm_critic_loss.backward()
+            if self.clip_grad_fun is not None:
+                self.clip_grad_fun(params=self.critic.parameters())
+            self.critic_optimizer.step()
+            self.critic_optimizer.zero_grad()
         # increment token counter
         self.stats.total_tokens += batch.ntokens
 
@@ -497,13 +603,13 @@ class TrainManager:
 
     def _validate(self, valid_data, epoch_no):
         valid_start_time = time.time()
-
         valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
-        valid_hypotheses_raw, valid_attention_scores = \
+        valid_hypotheses_raw, valid_attention_scores, valid_logs = \
             validate_on_data(
                 batch_size=self.eval_batch_size,
                 data=valid_data,
+                config=self.config,
                 eval_metric=self.eval_metric,
                 level=self.level, model=self.model,
                 use_cuda=self.use_cuda,
@@ -514,7 +620,8 @@ class TrainManager:
                 postprocess=True,           # always remove BPE for validation
                 bpe_type=self.bpe_type,     # "subword-nmt" or "sentencepiece"
                 sacrebleu=self.sacrebleu,   # sacrebleu options
-                n_gpu=self.n_gpu
+                n_gpu=self.n_gpu,
+                critic=self.critic
             )
 
         self.tb_writer.add_scalar(
@@ -581,6 +688,9 @@ class TrainManager:
                 output_prefix="{}/att.{}".format(
                     self.model_dir, self.stats.steps),
                 tb_writer=self.tb_writer, steps=self.stats.steps)
+
+        if self.reinforcement_learning and self.log_probabilities:
+            self._log_reinforcement_learning(valid_logs, epoch_no, valid_hypotheses)
 
         return valid_duration
 
@@ -657,6 +767,201 @@ class TrainManager:
             logger.info("\tReference:  %s", references[p])
             logger.info("\tHypothesis: %s", hypotheses[p])
 
+    def _log_reinforcement_learning(self, valid_logs, epoch_no, valid_hypotheses):
+        entropy, gold_strings, predicted_strings, highest_words, total_probability, \
+                highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
+                    
+        self.probability_logger.info(
+                "Epoch %3d Step: %8d \n",
+                epoch_no + 1, self.stats.steps)
+
+        self.entropy_logger.info(
+                "Epoch %3d Step: %8d \n"
+                "Entropy: %12.8f",  
+                epoch_no + 1, self.stats.steps, entropy)
+
+        self.gold_token_logger.info(
+                "Epoch %3d Step: %8d \n",
+                epoch_no + 1, self.stats.steps)
+
+        batch_ranks = []
+
+        total_probability = [torch.stack(el) for el in total_probability if el != []]
+        highest_prob = [torch.stack(el) for el in highest_prob if el != []]
+        gold_probabilities = [torch.stack(el) for el in gold_probabilities if el != []]
+
+        average_total_prob = torch.mean(torch.stack([torch.mean(el) for el in total_probability]))
+        average_highest_prob = torch.mean(torch.stack([torch.mean(el) for el in highest_prob]))
+        average_gold_prob = torch.mean(torch.stack([torch.mean(el) for el in gold_probabilities]))
+        
+        self.collected_top10_probability.append(total_probability)
+        self.collected_highest_probability.append(highest_prob)
+        self.collected_gold_probability.append(gold_probabilities)
+        self.collected_gold_ranks.append(gold_token_ranks)
+        
+        self.probability_logger.info(
+        "Average Top10 Probability: %2.4f \n"
+        "Average Highest Probability: %2.4f \n"
+        "Average Gold Probability: %2.4f \n", \
+                average_total_prob, average_highest_prob, average_gold_prob)
+        """
+        with open(self.model_dir+"/top10.pickle", "wb") as f:
+            pickle.dump(self.collected_top10_probability, f)
+        with open(self.model_dir+"/highest_prob.pickle", "wb") as f:
+            pickle.dump(self.collected_highest_probability, f)
+        with open(self.model_dir+"/gold_token.pickle", "wb") as f:
+            pickle.dump(self.collected_gold_probability, f)
+        with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
+            pickle.dump(self.collected_gold_ranks, f)
+        """    
+        # calculate and log tracking of the gold tokens 
+        if self.epoch_gold_ranks != []:
+            number_of_gold_tokens_below_topk = 0 
+            number_of_gold_tokens_between_in_topk = 0
+            number_of_gold_tokens_in_top10 = 0
+            number_of_gold_tokens_in_rank10 = 0
+            number_of_gold_tokens_in_rank9 = 0
+            number_of_gold_tokens_in_rank8 = 0
+            number_of_gold_tokens_in_rank7 = 0
+            number_of_gold_tokens_in_rank6 = 0
+            number_of_gold_tokens_in_rank5 = 0
+            number_of_gold_tokens_in_rank4 = 0
+            number_of_gold_tokens_in_rank3 = 0
+            number_of_gold_tokens_in_rank2 = 0
+            number_of_gold_tokens_in_rank1 = 0
+            number_of_gold_tokens_in_rank0 = 0
+
+            if self.stats.steps % 1000 == 0:
+                total_gold_rank_increases = 0
+                total_gold_rank_decreases = 0 
+                no_changes = 0 
+                previous_step_gold_ranks = self.epoch_gold_ranks[0]
+                number_of_rank_increases_from_below_topk = 0 
+                number_of_rank_increases_from_topk = 0 
+                number_of_rank_increases_from_top10 = 0
+                number_of_rank_increases_from_top3 = 0
+                number_of_rank_increases_from_below_topk_to_top3 = 0
+                number_of_rank_increases_from_below_top10_to_top3 = 0
+                number_of_rank_decreases_from_0 = 0
+                number_of_rank_decreases_from_top3 = 0
+                number_of_rank_decreases_from_top10 = 0
+                number_of_rank_increases_to_0 =0
+                number_of_rank_increases_to_top3 = 0
+                number_of_rank_increases_to_top10 = 0
+            else: 
+                previous_step_gold_ranks = self.epoch_gold_ranks[-1]
+
+            for current_gold_ranks, previous_gold_ranks in zip(gold_token_ranks, previous_step_gold_ranks):
+                for current_gold_rank, previous_gold_rank in zip(current_gold_ranks, previous_gold_ranks):
+                    if current_gold_rank == 900:
+                        number_of_gold_tokens_below_topk +=1
+                    elif current_gold_rank < 900 and current_gold_rank > 10:
+                        number_of_gold_tokens_between_in_topk += 1
+                    elif current_gold_rank <= 10: 
+                        number_of_gold_tokens_in_top10 += 1
+                    if current_gold_rank == 10: 
+                        number_of_gold_tokens_in_rank10 += 1
+                    elif current_gold_rank == 9: 
+                        number_of_gold_tokens_in_rank9 += 1
+                    elif current_gold_rank == 8: 
+                        number_of_gold_tokens_in_rank8 += 1
+                    elif current_gold_rank == 7: 
+                        number_of_gold_tokens_in_rank7 += 1
+                    elif current_gold_rank == 6: 
+                        number_of_gold_tokens_in_rank6 += 1
+                    elif current_gold_rank == 5: 
+                        number_of_gold_tokens_in_rank5 += 1
+                    elif current_gold_rank == 4: 
+                        number_of_gold_tokens_in_rank4 += 1
+                    elif current_gold_rank == 3: 
+                        number_of_gold_tokens_in_rank3 += 1
+                    elif current_gold_rank == 2: 
+                        number_of_gold_tokens_in_rank2 += 1
+                    elif current_gold_rank == 1: 
+                        number_of_gold_tokens_in_rank1 += 1
+                    elif current_gold_rank == 0: 
+                        number_of_gold_tokens_in_rank0 += 1
+                    
+                    if self.stats.steps % 1000 == 0:
+                        if current_gold_rank < previous_gold_rank:
+                            total_gold_rank_increases += 1
+                        elif current_gold_rank > previous_gold_rank:
+                            total_gold_rank_decreases += 1
+                        else: 
+                            no_changes +=1
+                        if previous_gold_rank == 900 and current_gold_rank < 900:
+                            number_of_rank_increases_from_below_topk += 1
+                        elif previous_gold_rank < 900 and previous_gold_rank > 10 and current_gold_rank <= 10:
+                            number_of_rank_increases_from_topk += 1
+                        elif previous_gold_rank <= 10 and previous_gold_rank > 3 and current_gold_rank <= 3:
+                            number_of_rank_increases_from_top10 +=1
+                        elif previous_gold_rank <= 3 and previous_gold_rank > 0 and current_gold_rank == 0:
+                            number_of_rank_increases_from_top3 +=1  
+                        if previous_gold_rank == 900 and current_gold_rank <= 3:
+                            number_of_rank_increases_from_below_topk_to_top3 += 1
+                        if previous_gold_rank < 900 and previous_gold_rank > 10 and current_gold_rank <= 3:
+                            number_of_rank_increases_from_below_top10_to_top3 +=1
+                        if previous_gold_rank > 0 and current_gold_rank ==0:
+                            number_of_rank_increases_to_0+=1
+                        if previous_gold_rank > 3 and current_gold_rank <= 3:
+                            number_of_rank_increases_to_top3 += 1
+                        if previous_gold_rank > 10 and current_gold_rank <= 10:
+                            number_of_rank_increases_to_top10+=1  
+                        if previous_gold_rank == 0 and current_gold_rank > 0:
+                            number_of_rank_decreases_from_0+=1
+                        if previous_gold_rank <= 3 and current_gold_rank > 3:
+                            number_of_rank_decreases_from_top3 += 1
+                        if previous_gold_rank <= 10 and current_gold_rank > 10:
+                            number_of_rank_decreases_from_top10+=1        
+                    #logging
+            self.gold_token_logger.info("Gold tokens below topk %5d \n"
+            "Gold tokens in topk %5d \n"
+            "Gold tokens in top10 %5d \n"
+            "Gold tokens rank 10 %5d \n"
+            "Gold tokens rank 9 %5d \n"
+            "Gold tokens rank 8 %5d \n"
+            "Gold tokens rank 7 %5d \n"
+            "Gold tokens rank 6 %5d \n"
+            "Gold tokens rank 5 %5d \n"
+            "Gold tokens rank 4 %5d \n"
+            "Gold tokens rank 3 %5d \n"
+            "Gold tokens rank 2 %5d \n"
+            "Gold tokens rank 1  %5d \n"
+            "Gold tokens rank 1  %5d \n", 
+            number_of_gold_tokens_below_topk, number_of_gold_tokens_between_in_topk,
+                number_of_gold_tokens_in_top10, number_of_gold_tokens_in_rank10, number_of_gold_tokens_in_rank9,
+                number_of_gold_tokens_in_rank8, number_of_gold_tokens_in_rank7, number_of_gold_tokens_in_rank6, 
+                number_of_gold_tokens_in_rank5, number_of_gold_tokens_in_rank4, number_of_gold_tokens_in_rank3,
+                number_of_gold_tokens_in_rank2, number_of_gold_tokens_in_rank1, number_of_gold_tokens_in_rank0)
+
+            if self.stats.steps % 1000 == 0:
+                self.gold_token_logger.info("Changes from below topk to topk %5d \n"
+                "Changes below topk to top10 %5d \n"
+                "Changes from top10 to top3 %5d \n"
+                "Changes from 3 to 0 %5d \n"
+                "Changes from below topk to 3 %5d \n"
+                "Changes from below top10 to 3 %5d \n"
+
+                "Increases to 0 %5d \n"
+                "Increases to top3 %5d \n"
+                "Increases to top10 %5d \n"
+
+                "Decreases from 0 below %5d \n"
+                "Decreases from top3 below %5d \n"
+                "Decreases from top10 below %5d \n"
+
+                "Total gold token increases  %5d \n"
+                "Total gold token decreases  %5d \n"
+                "Gold token stayed the same  %5d \n", 
+                number_of_rank_increases_from_below_topk, number_of_rank_increases_from_topk, number_of_rank_increases_from_top10, 
+                number_of_rank_increases_from_top3, number_of_rank_increases_from_below_topk_to_top3, number_of_rank_increases_from_below_top10_to_top3,
+                number_of_rank_increases_to_0, number_of_rank_increases_to_top3, number_of_rank_increases_to_top10,
+                number_of_rank_decreases_from_0, number_of_rank_decreases_from_top3, number_of_rank_decreases_from_top10,
+                total_gold_rank_increases, total_gold_rank_decreases, no_changes)
+
+        self.epoch_ranks.append(batch_ranks)
+        self.epoch_gold_ranks.append(gold_token_ranks)
+
     def _store_outputs(self, hypotheses: List[str]) -> None:
         """
         Write current validation outputs to file in `self.model_dir.`
@@ -695,6 +1000,8 @@ class TrainManager:
                 is_best = score > self.best_ckpt_score
             return is_best
 
+    
+
 
 def train(cfg_file: str) -> None:
     """
@@ -717,11 +1024,17 @@ def train(cfg_file: str) -> None:
     train_data, dev_data, test_data, src_vocab, trg_vocab = load_data(
         data_cfg=cfg["data"])
 
+    rl_method = cfg["training"]["reinforcement_learning"].get("method", False)
     # build an encoder-decoder model
     model = build_model(cfg["model"], src_vocab=src_vocab, trg_vocab=trg_vocab)
+    if rl_method=="a2c": 
+        critic_model = build_model(cfg["model"], src_vocab=src_vocab, trg_vocab=trg_vocab, is_critic=True)
 
     # for training management, e.g. early stopping and model selection
-    trainer = TrainManager(model=model, config=cfg)
+    if rl_method=="a2c":
+        trainer = TrainManager(model=model, config=cfg, critic_model=critic_model)
+    else:
+        trainer = TrainManager(model=model, config=cfg)
 
     # store copy of original training config in model dir
     shutil.copy2(cfg_file, model_dir + "/config.yaml")

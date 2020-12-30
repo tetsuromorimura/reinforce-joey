@@ -6,6 +6,11 @@ Module to implement training loss
 import torch
 from torch import nn, Tensor
 from torch.autograd import Variable
+from joeynmt.metrics import bleu
+import sacrebleu
+import numpy as np
+from random import sample
+from joeynmt.model import RewardRegressionModel
 
 
 class XentLoss(nn.Module):
@@ -76,3 +81,137 @@ class XentLoss(nn.Module):
         loss = self.criterion(
             log_probs.contiguous().view(-1, log_probs.size(-1)), targets)
         return loss
+
+class ReinforceLoss(nn.Module):
+    """
+    Reinforce Loss
+    """
+    def __init__(self, baseline, use_cuda, reward: str="bleu"):
+        super(ReinforceLoss, self).__init__()
+        self.baseline = baseline
+        self.reward = reward
+        self.bleu = []
+        self.counter = 0 
+        self.use_cuda = use_cuda
+        self.critic_loss = torch.nn.MSELoss(reduction='sum')
+        
+        if self.baseline == "learned_reward_baseline":
+            self.all_targets_and_outputs = torch.FloatTensor()
+            self.all_bleus = torch.FloatTensor()
+            #hyperparameter for learned reward baseline
+            self.learned_baseline_loss = torch.nn.MSELoss(reduction='sum')
+            """
+            self.padding_size = 200
+            self.hidden_size = 100
+            self.steps = 500 # steps should be more than batch size
+            self.max_elements = 5000 # maximum number of samples to train
+            self.max_training_size = 500000
+            """
+            self.padding_size = 180
+            self.hidden_size = 200
+            self.steps = 500 # steps should be more than batch size
+            self.max_elements = 2000 # maximum number of samples to train
+            self.max_training_size = 10000
+            self.learned_baseline_model = RewardRegressionModel(2*self.padding_size, self.hidden_size, 1)
+            self.learned_baseline_learning_rate = 1e-4
+            self.learned_baseline_optimizer = torch.optim.Adam(self.learned_baseline_model.parameters(), lr=self.learned_baseline_learning_rate)
+            if self.use_cuda:
+                self.critic_loss.cuda()
+                self.learned_baseline_model.cuda()
+                self.learned_baseline_loss.cuda()
+                self.all_targets_and_outputs = torch.FloatTensor().cuda()
+                self.all_bleus = torch.FloatTensor().cuda()
+
+    # TODO examine BLEU different smoothing types
+    def forward(self, predicted, gold, log_probs, stacked_output, targets):
+        if self.reward == "constant":
+            bleu_scores = [1]*len(log_probs)
+            old_bleus = bleu_scores
+            loss = sum([log_prob for log_prob in log_probs])
+            #loss = sum([-log_prob for log_prob in log_probs])
+            
+        elif self.reward == "scaled_bleu":
+                def scale(reward, a, b, minim, maxim):
+                    if maxim-minim == 0:
+                        return 0
+                    else: 
+                        return (((b-a)*(reward - minim))/(maxim-minim)) + a 
+                #maxim = max([max(scores) for scores in self.bleu])
+                #minim = min([min(scores) for scores in self.bleu])
+                maxim = max(bleu_scores)
+                minim = min(bleu_scores)
+                new_bleus = [scale(score, -0.5, 0.5, minim, maxim) for score in bleu_scores]
+                print(new_bleus)
+                old_bleus = bleu_scores
+                bleu_scores = new_bleus
+
+        elif self.reward == "bleu":
+            bleu_scores = []
+            for prediction, gold_ref in zip(predicted, gold):
+                bleu_scores.append(bleu([prediction], [gold_ref]))
+                #bleu_scores.append(sacrebleu.sentence_bleu(prediction, gold_ref))
+            self.bleu.append(bleu_scores)
+            self.counter += len(bleu_scores)
+            # use baselines
+            old_bleus=[]
+            if self.baseline == "average_reward_reward":
+                average_bleu = sum([sum(score) for score in self.bleu])/self.counter
+                new_bleus = [score - average_bleu for score in bleu_scores]
+                old_bleus = bleu_scores
+                bleu_scores = new_bleus
+            
+            elif self.baseline == "learned_reward_baseline": 
+                with torch.enable_grad(): 
+                    stacked_output = stacked_output.float()
+                    # pad target tensor with zeros
+                    if self.use_cuda:
+                        padded_targets = torch.zeros(list(targets.size())[0], self.padding_size, dtype=torch.float, device='cuda')
+                        padded_outputs = torch.zeros(list(targets.size())[0], self.padding_size, dtype=torch.float, device='cuda')
+                    else:
+                        padded_targets = torch.zeros(list(targets.size())[0], self.padding_size, dtype=torch.float)
+                        padded_outputs = torch.zeros(list(targets.size())[0], self.padding_size, dtype=torch.float)
+                    padded_targets[:, :list(targets.size())[1]] = targets.float()
+                    padded_outputs[:, :list(stacked_output.size())[1]] = stacked_output.float()
+                    stacked_training_data = torch.cat([padded_outputs, padded_targets], 1)           
+                    stacked_training_data.cuda()    
+                    bleu_tensor = torch.FloatTensor(bleu_scores).cuda()
+                    bleu_tensor = bleu_tensor.unsqueeze(1)
+                    if self.use_cuda:
+                        bleu_tensor.cuda()
+                    N = list(self.all_targets_and_outputs.size())[0]
+                    if N != 0: 
+                        x = self.all_targets_and_outputs
+                        y = self.all_bleus
+                        if N > self.max_elements: # select N samples
+                            indices = sample(range(N),self.max_elements)
+                            x = torch.from_numpy(x.cpu().numpy()[indices, :]).cuda()
+                            y = torch.from_numpy(y.cpu().numpy()[indices, :]).cuda()
+                        #if self.use_cuda:
+                        x.cuda()
+                        y.cuda()
+                        x_test = stacked_training_data
+                        for t in range(self.steps):
+                            y_pred = self.learned_baseline_model(x)
+                            loss = self.learned_baseline_loss(y_pred, y)
+                            self.learned_baseline_optimizer.zero_grad()
+                            loss.backward()
+                            self.learned_baseline_optimizer.step()
+                        learned_bleus = self.learned_baseline_model(x_test).squeeze(1).tolist()
+                        new_bleus = [score - learned_bleu for score, learned_bleu in zip(bleu_scores, learned_bleus)]
+                        bleu_scores = new_bleus
+                # remove training data if its too much 
+                if self.all_targets_and_outputs.size()[0] > self.max_training_size:
+                    rows_to_keep = self.all_targets_and_outputs.size()[0] - stacked_training_data.size()[0]
+                    indices = sample(range(N),rows_to_keep)
+                    self.all_targets_and_outputs = self.all_targets_and_outputs[indices,:]
+                    self.all_bleus = self.all_bleus[indices,:]
+                    if self.use_cuda:
+                        self.all_targets_and_outputs.cuda()
+                        self.all_bleus.cuda()
+                # append current training data
+                self.all_bleus = torch.cat([self.all_bleus, bleu_tensor], 0)
+                self.all_targets_and_outputs = torch.cat([self.all_targets_and_outputs, stacked_training_data], 0)
+            loss = 0
+            for log_prob, bleu_score in zip(log_probs, bleu_scores):
+                loss += log_prob*bleu_score
+        return loss, bleu_scores, old_bleus

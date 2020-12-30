@@ -4,6 +4,7 @@ Module to represents whole models
 """
 from typing import Callable
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
@@ -11,11 +12,25 @@ import torch.nn.functional as F
 from joeynmt.initialization import initialize_model
 from joeynmt.embeddings import Embeddings
 from joeynmt.encoders import Encoder, RecurrentEncoder, TransformerEncoder
-from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder
+from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder, CriticDecoder, CriticTransformerDecoder
 from joeynmt.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
 from joeynmt.vocabulary import Vocabulary
-from joeynmt.helpers import ConfigurationError
+from torch.distributions import Categorical
+from joeynmt.batch import Batch
+from joeynmt.helpers import ConfigurationError, tensor_to_float, log_peakiness, join_strings
+from joeynmt.metrics import bleu
+import threading
 
+
+class RewardRegressionModel(nn.Module):
+    def __init__(self, D_in, H, D_out):
+        super().__init__()
+        self.l1 = nn.Linear(D_in, H)
+        self.relu = nn.ReLU()
+        self.l2=nn.Linear(H, D_out)
+
+    def forward(self, X):
+        return self.l2(self.relu(self.l1(X)))
 
 class Model(nn.Module):
     """
@@ -51,6 +66,8 @@ class Model(nn.Module):
         self.pad_index = self.trg_vocab.stoi[PAD_TOKEN]
         self.eos_index = self.trg_vocab.stoi[EOS_TOKEN]
         self._loss_function = None # set by the TrainManager
+        self.bleu = []
+        self.counter = 0 
 
     @property
     def loss_function(self):
@@ -59,6 +76,286 @@ class Model(nn.Module):
     @loss_function.setter
     def loss_function(self, loss_function: Callable):
         self._loss_function = loss_function
+
+    def reinforce(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+            src_length: Tensor, temperature: float, topk: int, log_probabilities: False):
+
+        """ Computes forward pass for Policy Gradient aka REINFORCE
+        
+        Encodes source, then step by step decodes and samples token from output distribution.
+        Calls the loss function to compute the BLEU and loss  
+
+        :return loss, probability logs
+        """
+
+        encoder_output, encoder_hidden = self._encode(src, src_length,
+            src_mask)
+        # if maximum output length is not globally specified, adapt to src len
+        if max_output_length is None:
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        batch_size = src_mask.size(0)
+        ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
+        trg_mask = src_mask.new_ones([1, 1, 1])
+        distributions = []
+        log_probs = 0
+        # init hidden state in case of using rnn decoder  
+        hidden = self.decoder._init_hidden(encoder_hidden) \
+            if hasattr(self.decoder,'_init_hidden') else 0
+        attention_vectors = None
+        finished = src_mask.new_zeros((batch_size)).byte()
+        for i in range(max_output_length):
+            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
+            previous_words = ys[:, -1].view(-1,1)
+            logits, hidden, attention_scores, attention_vectors = self.decoder(
+                trg_embed=self.trg_embed(previous_words),
+                encoder_output=encoder_output,
+                encoder_hidden=encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=hidden,
+                prev_att_vector=attention_vectors,
+                trg_mask=trg_mask
+            )
+            logits = logits[:, -1]/temperature
+            distrib = Categorical(logits=logits)
+            distributions.append(distrib)
+            next_word = distrib.sample()
+            log_probs -= distrib.log_prob(next_word)
+            ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
+            # check if previous symbol was <eos>
+            is_eos = torch.eq(next_word, self.eos_index)
+            finished += is_eos
+            # stop predicting if <eos> reached for all elements in batch
+            if (finished >= 1).sum() == batch_size:
+                break
+
+        ys = ys[:, 1:]
+        predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
+                                                        cut_at_eos=True)
+        gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
+                                                    cut_at_eos=True)
+        predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
+        gold_strings = [join_strings(wordlist) for wordlist in gold_output]
+        # get loss 
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings,  log_probs, ys, trg)
+        return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, 
+        trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
+        if log_probabilities else (batch_loss, [])
+
+    def mrt(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor, src_length: Tensor, 
+            temperature: float, samples: int, alpha: float, topk: int, add_gold=False, log_probabilities=False):
+        """ Computes forward pass for MRT
+        
+        Encodes source, samples multiple output sequences.
+        Coputes rewards and MRT-loss 
+
+        :return loss, probability logs
+        """
+
+        encoder_output, encoder_hidden = self._encode(src, src_length,
+                    src_mask)
+        # if maximum output length is not globally specified, adapt to src len
+        if max_output_length is None:
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        batch_size = src_mask.size(0)
+        ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
+        trg_mask = src_mask.new_ones([1, 1, 1])
+        total_prob = 0
+        collect_gold_probs = 0 
+        distributions = []
+        attention_vectors = None
+        encoder_output = encoder_output.repeat(samples,1,1)
+        if hasattr(self.decoder,'_init_hidden'):
+            hidden = self.decoder._init_hidden(encoder_hidden)
+            if len(hidden)==2: 
+                hidden = (hidden[0].repeat(1,samples,1), hidden[1].repeat(1,samples,1)) 
+            else: 
+                hidden = hidden.repeat(1,samples,1)
+            #hidden = tuple(hidden[i].repeat(1, samples, 1) for i in range(len(hidden)))
+        else:
+            hidden = (0,0)
+        # repeat tensor for vectorized solution
+        ys = ys.repeat(samples, 1)
+        src_mask = src_mask.repeat(samples,1,1)
+        for i in range(max_output_length):
+            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
+            previous_words = ys[:, -1].view(-1,1)
+            logits, hidden, attention_scores, attention_vectors = self.decoder(
+                trg_embed=self.trg_embed(previous_words),
+                encoder_output=encoder_output,
+                encoder_hidden=encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=hidden,
+                prev_att_vector=attention_vectors,
+                trg_mask=trg_mask
+            )
+            logits = logits[:, -1]/temperature
+            distrib = Categorical(logits=logits)
+            if i < trg.shape[1]:
+                # get ith column 
+                # better: take the average 
+                ith_column = trg[:,i]
+                pumped_ith_column = ith_column.repeat(samples)
+                stacked = torch.stack(list(torch.split(distrib.log_prob(pumped_ith_column), batch_size)))
+                gold_log_prob = stacked[0]
+                # incrementally update gold ranks in every step
+                # batch elements
+                collect_gold_probs+=gold_log_prob*alpha
+            distributions.append(distrib)
+            next_word = distrib.sample()
+            ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
+            total_prob += distrib.log_prob(next_word)*alpha
+        all_sequences = list(torch.split(ys, batch_size))
+        sentence_probabs= list(torch.split(total_prob, batch_size))
+        #distributions.append(sample_distributions)
+        ys = ys[:, 1:]
+        predicted_outputs = [self.trg_vocab.arrays_to_sentences(arrays=sequ,
+                                                        cut_at_eos=True) for sequ in all_sequences]
+        gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
+                                                    cut_at_eos=True)
+        predicted_sentences = [[join_strings(wordlist) for wordlist in predicted_output] 
+            for predicted_output in predicted_outputs]
+        gold_strings = [join_strings(wordlist) for wordlist in gold_output]
+        # add gold
+        all_gold_sentences = gold_strings*samples
+        if add_gold:
+            sentence_probabs.append(collect_gold_probs)
+            predicted_sentences.append(gold_strings)
+            all_gold_sentences.append(gold_strings)
+        # calculate Qs
+        #sum_of_probabs = sum([probab for probab in sentence_probabs])
+        #list_of_Qs = [(probab)/sum_of_probabs for probab in sentence_probabs]
+        list_of_Qs = torch.softmax(torch.stack(sentence_probabs), 0)
+        # sanity check
+        batch_loss = 0
+        for index, Q in enumerate(list_of_Qs):
+            for prediction, gold_ref, Q_iter in zip(predicted_sentences[index], all_gold_sentences[index], Q):
+                # gradient ascent
+                batch_loss += bleu([prediction], [gold_ref])*Q_iter
+        rewards = [bleu([prediction], [gold_ref]) for prediction, gold_ref in zip(predicted_sentences[-1], all_gold_sentences[-1])]
+        Qs_to_return = [q.tolist() for q in list_of_Qs]
+        return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, \
+            trg, batch_size, max_output_length, gold_strings, predicted_sentences, \
+                Qs_to_return, rewards, mrt=True, samples=samples)) \
+                if log_probabilities else (batch_loss, [])
+
+    def ned_a2c(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
+                        src_length: Tensor, temperature: float, critic: nn.Module, topk: int, log_probabilities=False):
+        """ Computes forward pass for NED-A2C
+        
+        Encodes source, step by step decodes and samples actor output.
+        For each step decodes critic output given actor outputs as target
+        Computes actor loss and critic loss 
+
+        :return actor loss, critic loss, actor probability logs
+        """
+
+        if max_output_length is None:
+            max_output_length = int(max(src_length.cpu().numpy()) * 1.5)
+        batch_size = src_mask.size(0) 
+        trg_mask = src_mask.new_ones([1, 1, 1])
+        # init actor parameters
+        encoder_output, encoder_hidden = self._encode(
+            src, src_length,
+            src_mask)
+        hidden = (self.decoder._init_hidden(encoder_hidden)) \
+            if hasattr(self.decoder,'_init_hidden') else (0,0)
+        attention_vectors= None 
+        ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
+        log_probs = 0
+        distributions = []
+        actor_log_probabs = []
+        # init critic parameters
+        critic_encoder_output, critic_encoder_hidden = critic._encode(
+                src, src_length,
+                src_mask)
+        critic_hidden = (self.decoder._init_hidden(critic_encoder_hidden)) \
+            if hasattr(self.decoder,'_init_hidden') else (0,0)
+        critic_logits = []
+        critic_sequence = critic_encoder_output.new_full(size=[batch_size, 1], fill_value=self.bos_index, dtype=torch.long)
+        critic_attention_vectors = None
+        #init dict to track eos
+        eos_dict = {i:-1 for i in range(batch_size)}
+        finished = src_mask.new_zeros((batch_size)).byte()
+        for i in range(max_output_length):
+            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
+            previous_words = ys[:, -1].view(-1, 1)
+            logits, hidden, attention_scores, attention_vectors = self.decoder(
+                trg_embed=self.trg_embed(previous_words),
+                encoder_output=encoder_output,
+                encoder_hidden=encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=hidden,
+                prev_att_vector=attention_vectors,
+                trg_mask=trg_mask
+            )
+            logits = logits[:, -1]/temperature
+            distrib = Categorical(logits=logits)
+            distributions.append(distrib)
+            sampled_word = distrib.sample()
+            log_probs -= distrib.log_prob(sampled_word)
+            ys = torch.cat([ys, sampled_word.unsqueeze(-1)], dim=1)
+            actor_log_probabs.append(log_probs)
+            sampled_word_list = sampled_word.tolist()
+            for index in range(len(sampled_word_list)):
+                if sampled_word_list[index] == self.eos_index:
+                    if eos_dict[index] == -1:
+                        eos_dict[index] = i 
+            # unroll critic
+            critic_logit, critic_hidden, critic_attention_scores, critic_attention_vectors = critic.decoder(
+                trg_embed=self.trg_embed(sampled_word.view(-1,1)),
+                encoder_output=critic_encoder_output,
+                encoder_hidden=critic_encoder_hidden,
+                src_mask=src_mask,
+                unroll_steps=1,
+                hidden=critic_hidden,
+                prev_att_vector=critic_attention_vectors,
+                trg_mask=trg_mask
+            )
+            critic_logits.append(critic_logit)
+            critic_distrib =  Categorical(logits = critic_logit.view(-1, critic_logit.size(-1)))
+            critic_sample = critic_distrib.sample()
+            critic_sequence = torch.cat([critic_sequence, critic_sample.view(-1, 1)], -1)
+            # check if previous symbol was <eos>
+            is_eos = torch.eq(sampled_word, self.eos_index)
+            finished += is_eos
+            # stop predicting if <eos> reached for all elements in batch
+            if (finished >= 1).sum() == batch_size:
+                break
+        ys = ys[:, 1:]
+        critic_sequence = critic_sequence[:, 1:]
+        # calculate rewards
+        predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
+                                                        cut_at_eos=True)
+        gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
+                                                    cut_at_eos=True)
+        predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
+        gold_strings = [join_strings(wordlist) for wordlist in gold_output]
+        bleu_scores = []
+        for prediction, gold_ref in zip(predicted_strings, gold_strings):
+            bleu_scores.append(bleu([prediction], [gold_ref]))
+        bleu_tensor = torch.FloatTensor(bleu_scores).unsqueeze(1)
+        if torch.cuda.is_available():
+            bleu_tensor = bleu_tensor.cuda()
+        critic_logits_tensor = torch.stack(critic_logits)
+        critic_logits_tensor = critic_logits_tensor.squeeze()
+        if len(critic_logits_tensor.shape) == 1: 
+            critic_logits_tensor = critic_logits_tensor.unsqueeze(1)
+        for dict_index in eos_dict:
+            critic_logits_tensor[eos_dict[dict_index]:,dict_index] = 0
+        critic_logits = torch.unbind(critic_logits_tensor)
+        rewards = [(bleu_tensor-logit).squeeze(1) for logit in critic_logits]
+        # calculate critic loss 
+        critic_loss = torch.cat([torch.pow(bleu_tensor-logit, 2) for logit in critic_logits]).sum()
+        # calculate actor loss
+        batch_loss = 0
+        for log_prob, critic_logit in zip(actor_log_probabs, critic_logits):
+            batch_loss += log_prob.unsqueeze(1)*(bleu_tensor-critic_logit)
+        batch_loss = batch_loss.sum()
+        return ([batch_loss, critic_loss], log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, bleu_scores)) \
+        if log_probabilities else ([batch_loss, critic_loss], [])
 
     def forward(self, return_type: str = None, **kwargs) \
             -> (Tensor, Tensor, Tensor, Tensor):
@@ -96,6 +393,49 @@ class Model(nn.Module):
             #     = sum over all elements in batch that are not pad
             return_tuple = (batch_loss, None, None, None)
 
+        elif return_type == "reinforce":
+            loss, logging = self.reinforce(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
+            max_output_length=kwargs["max_output_length"],
+            temperature=kwargs["temperature"],
+            topk=kwargs['topk'],
+            log_probabilities=kwargs["log_probabilities"]
+            )
+            return_tuple = (loss, logging, None, None)
+
+        elif return_type == "mrt":
+            loss, logging = self.mrt(
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
+            max_output_length=kwargs["max_output_length"],
+            temperature=kwargs["temperature"],
+            alpha=kwargs["alpha"],
+            samples=kwargs["samples"],
+            topk=kwargs['topk'],
+            add_gold=kwargs["add_gold"],
+            log_probabilities=kwargs["log_probabilities"]
+            )
+            return_tuple = (loss, logging, None, None)
+
+        elif return_type == "a2c":
+            loss, logging = self.ned_a2c(
+            critic=kwargs["critic"],
+            src=kwargs["src"],
+            trg=kwargs["trg"],
+            src_mask=kwargs["src_mask"],
+            src_length=kwargs["src_length"],
+            max_output_length=kwargs["max_output_length"],
+            temperature=kwargs["temperature"],
+            topk=kwargs['topk'],
+            log_probabilities=kwargs["log_probabilities"]
+            )
+            return_tuple = (loss, logging, None, None)
+
         elif return_type == "encode":
             encoder_output, encoder_hidden = self._encode(
                 src=kwargs["src"],
@@ -118,7 +458,6 @@ class Model(nn.Module):
 
             # return decoder outputs
             return_tuple = (outputs, hidden, att_probs, att_vectors)
-
         return return_tuple
 
     # pylint: disable=arguments-differ
@@ -211,7 +550,8 @@ class _DataParallel(nn.DataParallel):
 
 def build_model(cfg: dict = None,
                 src_vocab: Vocabulary = None,
-                trg_vocab: Vocabulary = None) -> Model:
+                trg_vocab: Vocabulary = None,
+                is_critic: bool = False) -> Model:
     """
     Build and initialize the model according to the configuration.
 
@@ -246,45 +586,56 @@ def build_model(cfg: dict = None,
     enc_emb_dropout = cfg["encoder"]["embeddings"].get("dropout", enc_dropout)
     if cfg["encoder"].get("type", "recurrent") == "transformer":
         assert cfg["encoder"]["embeddings"]["embedding_dim"] == \
-               cfg["encoder"]["hidden_size"], \
-               "for transformer, emb_size must be hidden_size"
+            cfg["encoder"]["hidden_size"], \
+            "for transformer, emb_size must be hidden_size"
 
         encoder = TransformerEncoder(**cfg["encoder"],
-                                     emb_size=src_embed.embedding_dim,
-                                     emb_dropout=enc_emb_dropout)
+                                    emb_size=src_embed.embedding_dim,
+                                    emb_dropout=enc_emb_dropout)
     else:
         encoder = RecurrentEncoder(**cfg["encoder"],
-                                   emb_size=src_embed.embedding_dim,
-                                   emb_dropout=enc_emb_dropout)
+                                    emb_size=src_embed.embedding_dim,
+                                    emb_dropout=enc_emb_dropout)
 
     # build decoder
     dec_dropout = cfg["decoder"].get("dropout", 0.)
     dec_emb_dropout = cfg["decoder"]["embeddings"].get("dropout", dec_dropout)
     if cfg["decoder"].get("type", "recurrent") == "transformer":
-        decoder = TransformerDecoder(
+        if is_critic: 
+            decoder = CriticTransformerDecoder(
             **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
             emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
+        else:
+            decoder = TransformerDecoder(
+                **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
+                emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
     else:
-        decoder = RecurrentDecoder(
+        if is_critic: 
+            decoder = CriticDecoder(
             **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
             emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
+        else:
+            decoder = RecurrentDecoder(
+                **cfg["decoder"], encoder=encoder, vocab_size=len(trg_vocab),
+                emb_size=trg_embed.embedding_dim, emb_dropout=dec_emb_dropout)
 
     model = Model(encoder=encoder, decoder=decoder,
                   src_embed=src_embed, trg_embed=trg_embed,
                   src_vocab=src_vocab, trg_vocab=trg_vocab)
-
+    #if not False:
     # tie softmax layer with trg embeddings
-    if cfg.get("tied_softmax", False):
-        if trg_embed.lut.weight.shape == \
-                model.decoder.output_layer.weight.shape:
-            # (also) share trg embeddings and softmax layer:
-            model.decoder.output_layer.weight = trg_embed.lut.weight
-        else:
-            raise ConfigurationError(
-                "For tied_softmax, the decoder embedding_dim and decoder "
-                "hidden_size must be the same."
-                "The decoder must be a Transformer.")
-
+    if not is_critic: 
+        if cfg.get("tied_softmax", False):
+            if trg_embed.lut.weight.shape == \
+                    model.decoder.output_layer.weight.shape:
+                # (also) share trg embeddings and softmax layer:
+                model.decoder.output_layer.weight = trg_embed.lut.weight
+            else:
+                raise ConfigurationError(
+                    "For tied_softmax, the decoder embedding_dim and decoder "
+                    "hidden_size must be the same."
+                    "The decoder must be a Transformer.")
+                
     # custom initialization of model parameters
     initialize_model(model, cfg, src_padding_idx, trg_padding_idx)
 
