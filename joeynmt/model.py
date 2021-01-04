@@ -171,14 +171,12 @@ class Model(nn.Module):
                 hidden = (hidden[0].repeat(1,samples,1), hidden[1].repeat(1,samples,1)) 
             else: 
                 hidden = hidden.repeat(1,samples,1)
-            #hidden = tuple(hidden[i].repeat(1, samples, 1) for i in range(len(hidden)))
         else:
             hidden = (0,0)
         # repeat tensor for vectorized solution
         ys = ys.repeat(samples, 1)
         src_mask = src_mask.repeat(samples,1,1)
         for i in range(max_output_length):
-            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             previous_words = ys[:, -1].view(-1,1)
             logits, hidden, attention_scores, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
@@ -191,6 +189,7 @@ class Model(nn.Module):
                 trg_mask=trg_mask
             )
             logits = logits[:, -1]/temperature
+            #logits = logits.view(-1, logits.size(-1))/temperature
             distrib = Categorical(logits=logits)
             if i < trg.shape[1]:
                 # get ith column 
@@ -201,15 +200,15 @@ class Model(nn.Module):
                 gold_log_prob = stacked[0]
                 # incrementally update gold ranks in every step
                 # batch elements
-                collect_gold_probs+=gold_log_prob*alpha
+                collect_gold_probs-=gold_log_prob
             distributions.append(distrib)
             next_word = distrib.sample()
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
-            total_prob += distrib.log_prob(next_word)*alpha
-        all_sequences = list(torch.split(ys, batch_size))
-        sentence_probabs= list(torch.split(total_prob, batch_size))
-        #distributions.append(sample_distributions)
+            #ys = torch.cat([ys, next_word.view(-1, 1)], -1)
+            total_prob -= distrib.log_prob(next_word)
         ys = ys[:, 1:]
+        all_sequences = torch.stack(torch.split(ys, batch_size))
+        sentence_probabs= list(torch.split(total_prob, batch_size))    
         predicted_outputs = [self.trg_vocab.arrays_to_sentences(arrays=sequ,
                                                         cut_at_eos=True) for sequ in all_sequences]
         gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
@@ -218,15 +217,15 @@ class Model(nn.Module):
             for predicted_output in predicted_outputs]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
         # add gold
-        all_gold_sentences = gold_strings*samples
+        all_gold_sentences = [gold_strings]*samples
         if add_gold:
             sentence_probabs.append(collect_gold_probs)
             predicted_sentences.append(gold_strings)
             all_gold_sentences.append(gold_strings)
         # calculate Qs
-        #sum_of_probabs = sum([probab for probab in sentence_probabs])
-        #list_of_Qs = [(probab)/sum_of_probabs for probab in sentence_probabs]
-        list_of_Qs = torch.softmax(torch.stack(sentence_probabs), 0)
+        #sum_of_probabs = sum([probab*alpha for probab in sentence_probabs])
+        #list_of_Qs = [(probab*alpha)/sum_of_probabs for probab in sentence_probabs]
+        list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
         # sanity check
         batch_loss = 0
         for index, Q in enumerate(list_of_Qs):
@@ -239,7 +238,7 @@ class Model(nn.Module):
             trg, batch_size, max_output_length, gold_strings, predicted_sentences, \
                 Qs_to_return, rewards, mrt=True, samples=samples)) \
                 if log_probabilities else (batch_loss, [])
-
+    
     def ned_a2c(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
                         src_length: Tensor, temperature: float, critic: nn.Module, topk: int, log_probabilities=False):
         """ Computes forward pass for NED-A2C
