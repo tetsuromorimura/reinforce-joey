@@ -104,8 +104,7 @@ class Model(nn.Module):
         attention_vectors = None
         finished = src_mask.new_zeros((batch_size)).byte()
         for i in range(max_output_length):
-            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
-            previous_words = ys[:, -1].view(-1,1)
+            previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
@@ -177,7 +176,7 @@ class Model(nn.Module):
         ys = ys.repeat(samples, 1)
         src_mask = src_mask.repeat(samples,1,1)
         for i in range(max_output_length):
-            previous_words = ys[:, -1].view(-1,1)
+            previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
@@ -189,17 +188,13 @@ class Model(nn.Module):
                 trg_mask=trg_mask
             )
             logits = logits[:, -1]/temperature
-            #logits = logits.view(-1, logits.size(-1))/temperature
             distrib = Categorical(logits=logits)
             if i < trg.shape[1]:
-                # get ith column 
-                # better: take the average 
                 ith_column = trg[:,i]
                 pumped_ith_column = ith_column.repeat(samples)
                 stacked = torch.stack(list(torch.split(distrib.log_prob(pumped_ith_column), batch_size)))
                 gold_log_prob = stacked[0]
                 # incrementally update gold ranks in every step
-                # batch elements
                 collect_gold_probs-=gold_log_prob
             distributions.append(distrib)
             next_word = distrib.sample()
@@ -226,12 +221,11 @@ class Model(nn.Module):
         #sum_of_probabs = sum([probab*alpha for probab in sentence_probabs])
         #list_of_Qs = [(probab*alpha)/sum_of_probabs for probab in sentence_probabs]
         list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
-        # sanity check
         batch_loss = 0
         for index, Q in enumerate(list_of_Qs):
             for prediction, gold_ref, Q_iter in zip(predicted_sentences[index], all_gold_sentences[index], Q):
                 # gradient ascent
-                batch_loss += bleu([prediction], [gold_ref])*Q_iter
+                batch_loss -= bleu([prediction], [gold_ref])*Q_iter
         rewards = [bleu([prediction], [gold_ref]) for prediction, gold_ref in zip(predicted_sentences[-1], all_gold_sentences[-1])]
         Qs_to_return = [q.tolist() for q in list_of_Qs]
         return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, \
@@ -278,8 +272,7 @@ class Model(nn.Module):
         eos_dict = {i:-1 for i in range(batch_size)}
         finished = src_mask.new_zeros((batch_size)).byte()
         for i in range(max_output_length):
-            #previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
-            previous_words = ys[:, -1].view(-1, 1)
+            previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
