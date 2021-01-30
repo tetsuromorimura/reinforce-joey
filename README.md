@@ -1,5 +1,11 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
 
+In this project, I investigated the effects of Reinforcement Learning on Neural Machine Translation.  
+Recently the effectiveness of these methods has been questioned by [Choshen et al.](https://arxiv.org/pdf/1907.01752.pdf).  
+However, their analysis lacks serveral crucial aspects, such as modifying the reward by using a baseline.  
+This repository contains the implementations of several Reinforcement Learning algorithms, reward functions and baselines.   
+Furthermore, I implemented a method, to log the output distributions, which makes it possible to examine the effects of these methods. 
+
 ## Implemented algorithms:  
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
