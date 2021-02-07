@@ -7,12 +7,14 @@ This repository contains the implementations of several Reinforcement Learning a
 Furthermore, I implemented a method, to log the output distributions, which makes it possible to examine the effects of these methods. 
 
 ## Implemented algorithms:  
+The forward pass of each method can be found here:  
+[REINFORCE](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L145), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L243)   
+ 
+ The original papers can be found here:  
+ 
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
-
-The forward pass of each method can be found here: 
-[REINFORCE](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L145), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L243)   
 
 Each algorithm can be used with the Transformer and the RNN architecture. 
 
