@@ -31,10 +31,10 @@ training:
     batch_size: 250
     batch_type: "token"
     epochs: 30
-    validation_freq: 1000
+    validation_freq: 200
     logging_freq: 100
     eval_metric: "bleu"
-    model_dir: "models/transformer_reverse"
+    model_dir: "models/new_transformer_reverse"
     overwrite: True
     shuffle: True
     use_cuda: False
@@ -44,7 +44,7 @@ training:
 
     reinforcement_learning:
         use_reinforcement_learning: True         # specify if reinforcement learning is being used
-        method: "mrt"                         # RL-method: 'reinforce', 'mrt' or 'a2c'
+        method: "reinforce"                         # RL-method: 'reinforce', 'mrt' or 'a2c'
         log_probabilities: False                   # log token probabilities
         topk: 20                                  # log probability of topk tokens
         hyperparameters:

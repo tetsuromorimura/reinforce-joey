@@ -94,19 +94,12 @@ class ReinforceLoss(nn.Module):
         self.counter = 0 
         self.use_cuda = use_cuda
         self.critic_loss = torch.nn.MSELoss(reduction='sum')
-        
+        # hyperparams for learned reward: TODO move to config
         if self.baseline == "learned_reward_baseline":
             self.all_targets_and_outputs = torch.FloatTensor()
             self.all_bleus = torch.FloatTensor()
             #hyperparameter for learned reward baseline
             self.learned_baseline_loss = torch.nn.MSELoss(reduction='sum')
-            """
-            self.padding_size = 200
-            self.hidden_size = 100
-            self.steps = 500 # steps should be more than batch size
-            self.max_elements = 5000 # maximum number of samples to train
-            self.max_training_size = 500000
-            """
             self.padding_size = 180
             self.hidden_size = 200
             self.steps = 500 # steps should be more than batch size
@@ -122,45 +115,37 @@ class ReinforceLoss(nn.Module):
                 self.all_targets_and_outputs = torch.FloatTensor().cuda()
                 self.all_bleus = torch.FloatTensor().cuda()
 
-    # TODO examine BLEU different smoothing types
     def forward(self, predicted, gold, log_probs, stacked_output, targets):
+
+        bleu_scores = [bleu([prediction], [gold_ref]) \
+                for prediction, gold_ref in zip(predicted, gold)]
+        # save unscaled rewards for logging
+        unscaled_rewards = bleu_scores
         if self.reward == "constant":
-            bleu_scores = [1]*len(log_probs)
-            old_bleus = bleu_scores
             loss = sum([log_prob for log_prob in log_probs])
-            #loss = sum([-log_prob for log_prob in log_probs])
-            
+
         elif self.reward == "scaled_bleu":
                 def scale(reward, a, b, minim, maxim):
                     if maxim-minim == 0:
                         return 0
                     else: 
                         return (((b-a)*(reward - minim))/(maxim-minim)) + a 
-                #maxim = max([max(scores) for scores in self.bleu])
-                #minim = min([min(scores) for scores in self.bleu])
+
+                # scale locally
                 maxim = max(bleu_scores)
                 minim = min(bleu_scores)
-                new_bleus = [scale(score, -0.5, 0.5, minim, maxim) for score in bleu_scores]
-                print(new_bleus)
-                old_bleus = bleu_scores
-                bleu_scores = new_bleus
+                bleu_scores = [scale(score, -0.5, 0.5, minim, maxim) for score in bleu_scores]
 
         elif self.reward == "bleu":
-            bleu_scores = []
-            for prediction, gold_ref in zip(predicted, gold):
-                bleu_scores.append(bleu([prediction], [gold_ref]))
-                #bleu_scores.append(sacrebleu.sentence_bleu(prediction, gold_ref))
-            self.bleu.append(bleu_scores)
-            self.counter += len(bleu_scores)
-            # use baselines
-            old_bleus=[]
-            if self.baseline == "average_reward_reward":
-                average_bleu = sum([sum(score) for score in self.bleu])/self.counter
-                new_bleus = [score - average_bleu for score in bleu_scores]
-                old_bleus = bleu_scores
-                bleu_scores = new_bleus
+            if self.baseline == "average_reward_baseline":
+                # this baseline is calculated by using a global average
+                self.bleu.append(sum(bleu_scores))
+                self.counter += len(bleu_scores)
+                average_bleu = sum([score for score in self.bleu])/self.counter
+                bleu_scores = [score - average_bleu for score in bleu_scores]
             
             elif self.baseline == "learned_reward_baseline": 
+                # TODO currently not working as intended 
                 with torch.enable_grad(): 
                     stacked_output = stacked_output.float()
                     # pad target tensor with zeros
@@ -186,9 +171,9 @@ class ReinforceLoss(nn.Module):
                             indices = sample(range(N),self.max_elements)
                             x = torch.from_numpy(x.cpu().numpy()[indices, :]).cuda()
                             y = torch.from_numpy(y.cpu().numpy()[indices, :]).cuda()
-                        #if self.use_cuda:
-                        x.cuda()
-                        y.cuda()
+                        if self.use_cuda:
+                            x.cuda()
+                            y.cuda()
                         x_test = stacked_training_data
                         for t in range(self.steps):
                             y_pred = self.learned_baseline_model(x)
@@ -211,7 +196,8 @@ class ReinforceLoss(nn.Module):
                 # append current training data
                 self.all_bleus = torch.cat([self.all_bleus, bleu_tensor], 0)
                 self.all_targets_and_outputs = torch.cat([self.all_targets_and_outputs, stacked_training_data], 0)
-            loss = 0
-            for log_prob, bleu_score in zip(log_probs, bleu_scores):
-                loss += log_prob*bleu_score
-        return loss, bleu_scores, old_bleus
+
+            # calculate PG loss with rewards and log probs
+            loss = sum([log_prob*bleu_score \
+                for log_prob, bleu_score in zip(log_probs, bleu_scores)])
+        return loss, bleu_scores, unscaled_rewards
