@@ -94,7 +94,6 @@ class Model(nn.Module):
         :param topk: consider top-k parameters for logging
         :param log_probabilities: log probabilities
         :return: loss, logs
-        :return loss, probability logs
         """
 
         encoder_output, encoder_hidden = self._encode(src, src_length,
@@ -168,7 +167,7 @@ class Model(nn.Module):
         :param topk: consider top-k parameters for logging
         :param add_gold: add gold translation 
         :param log_probabilities: log probabilities
-        :return loss, probability logs
+        :return: loss, probability logs
         """
 
         encoder_output, encoder_hidden = self._encode(src, src_length,
@@ -270,8 +269,7 @@ class Model(nn.Module):
         :param critic: critic network
         :param topk: consider top-k parameters for logging
         :param log_probabilities: log probabilities
-        :return: loss, logs
-        :return actor loss, critic loss, actor probability logs
+        :return: actor loss, critic loss, actor probability logs
         """
 
         if max_output_length is None:
