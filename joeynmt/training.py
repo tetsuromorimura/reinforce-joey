@@ -312,16 +312,6 @@ class TrainManager:
         """
         logger.info("Loading model from %s", path)
         model_checkpoint = load_checkpoint(path=path, use_cuda=self.use_cuda)
-        if self.baseline == "learned_reward_baseline":
-            # TODO put learned baseline parameters in config
-            padding_size = 180
-            hidden_size = 200
-            l1 = nn.Linear(padding_size, hidden_size)
-            l2=nn.Linear(hidden_size, 1)
-            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"] = l1.weight
-            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"] = l1.bias
-            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"] = l2.weight
-            model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"] = l2.bias
         # restore model and optimizer parameters
         self.model.load_state_dict(model_checkpoint["model_state"])
 

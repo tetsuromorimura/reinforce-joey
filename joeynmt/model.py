@@ -85,6 +85,15 @@ class Model(nn.Module):
         Encodes source, then step by step decodes and samples token from output distribution.
         Calls the loss function to compute the BLEU and loss  
 
+        :param max_output_length: max output length
+        :param src: source input
+        :param trg: target input
+        :param src_mask: source mask
+        :param src_length: length of source inputs
+        :param temperature: softmax temperature 
+        :param topk: consider top-k parameters for logging
+        :param log_probabilities: log probabilities
+        :return: loss, logs
         :return loss, probability logs
         """
 
@@ -136,7 +145,7 @@ class Model(nn.Module):
         predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
         # get loss 
-        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings,  log_probs, ys, trg)
+        batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings,  log_probs)
         return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, 
         trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
         if log_probabilities else (batch_loss, [])
@@ -148,6 +157,17 @@ class Model(nn.Module):
         Encodes source, samples multiple output sequences.
         Coputes rewards and MRT-loss 
 
+        :param max_output_length: max output length
+        :param src: source input
+        :param trg: target input
+        :param src_mask: source mask
+        :param src_length: length of source inputs
+        :param temperature: softmax temperature 
+        :param samples: number of sampled sentences for MRT
+        :param alpha: smootheness of MRT
+        :param topk: consider top-k parameters for logging
+        :param add_gold: add gold translation 
+        :param log_probabilities: log probabilities
         :return loss, probability logs
         """
 
@@ -241,6 +261,16 @@ class Model(nn.Module):
         For each step decodes critic output given actor outputs as target
         Computes actor loss and critic loss 
 
+        :param max_output_length: max output length
+        :param src: source input
+        :param trg: target input
+        :param src_mask: source mask
+        :param src_length: length of source inputs
+        :param temperature: softmax temperature 
+        :param critic: critic network
+        :param topk: consider top-k parameters for logging
+        :param log_probabilities: log probabilities
+        :return: loss, logs
         :return actor loss, critic loss, actor probability logs
         """
 

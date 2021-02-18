@@ -349,24 +349,6 @@ def test(cfg_file,
 
     # build model and load parameters into it
     model = build_model(cfg["model"], src_vocab=src_vocab, trg_vocab=trg_vocab)
-
-    if baseline == "learned_reward_baseline":
-        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"]
-        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"]
-        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"]
-        del model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"]
-
-        """
-        hidden_size = 100
-        padding_size = 180
-        l1 = torch.nn.Linear(2*padding_size, 100)
-        l2 = torch.nn.Linear(100, 1)
-        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.weight"]=l1.weight
-        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l1.bias"]=l1.bias
-        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.weight"]=l2.weight
-        model_checkpoint["model_state"]["loss_function.learned_baseline_model.l2.bias"]=l2.bias
-        """
-
     model.load_state_dict(model_checkpoint["model_state"])
 
     if use_cuda:
