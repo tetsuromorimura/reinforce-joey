@@ -1,16 +1,11 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
-
-In this project, I investigated the effects of Reinforcement Learning on Neural Machine Translation.  
-Recently the effectiveness of these methods has been questioned by [Choshen et al.](https://arxiv.org/pdf/1907.01752.pdf).  
-However, their analysis lacks serveral crucial aspects, such as modifying the reward by using a baseline.  
-This repository contains the implementations of several Reinforcement Learning algorithms, reward functions and baselines.   
-Furthermore, I implemented a method, to log the output distributions, which makes it possible to examine the effects of these methods. 
+This is a fork of the awesome Joey-NMT which contains the implementations of several Reinforcement Learning algorithms, reward functions and baselines.
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
 [REINFORCE](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L152), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L255)   
  
- The original papers can be found here:  
+ The implemented papers can be found here:  
  
 - Policy Gradient aka REINFORCE as in [Kreutzer et al. (2017)](https://www.aclweb.org/anthology/P17-1138/)
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
@@ -35,7 +30,6 @@ Here a short explanation of the parameters.
   * baseline: 
     * False: no baseline
     * average_reward_baseline: subtracts a running average of all previous BLEUs from the rewards
-    * learned_reward_baseline: learns a two-layer regression network to estimate the BLEUs   
 * MRT:  
   * add_gold: adds gold/reference to sample space
   * samples: number of samples
