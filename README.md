@@ -8,7 +8,7 @@ Furthermore, I implemented a method, to log the output distributions, which make
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
-[REINFORCE](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L145), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/c1fa30691acc3e8d80b755f50bb21d1bbf21e893/joeynmt/model.py#L243)   
+[REINFORCE](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L152), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L255)   
  
  The original papers can be found here:  
  
