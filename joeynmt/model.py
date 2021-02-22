@@ -111,6 +111,7 @@ class Model(nn.Module):
             if hasattr(self.decoder,'_init_hidden') else 0
         attention_vectors = None
         finished = src_mask.new_zeros((batch_size)).byte()
+        # decode tokens
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
@@ -143,7 +144,7 @@ class Model(nn.Module):
                                                     cut_at_eos=True)
         predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
-        # get loss 
+        # get reinforce loss 
         batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings,  log_probs)
         return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, 
         trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
@@ -194,6 +195,7 @@ class Model(nn.Module):
         # repeat tensor for vectorized solution
         ys = ys.repeat(samples, 1)
         src_mask = src_mask.repeat(samples,1,1)
+        # decode tokens
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
@@ -208,18 +210,17 @@ class Model(nn.Module):
             )
             logits = logits[:, -1]/temperature
             distrib = Categorical(logits=logits)
+            # get gold tokens and probabilities
             if i < trg.shape[1]:
                 ith_column = trg[:,i]
                 pumped_ith_column = ith_column.repeat(samples)
                 stacked = torch.stack(list(torch.split(distrib.log_prob(pumped_ith_column), batch_size)))
                 gold_log_prob = stacked[0]
-                # incrementally update gold ranks in every step
-                collect_gold_probs-=gold_log_prob
+                collect_gold_probs-=gold_log_prob*alpha
             distributions.append(distrib)
             next_word = distrib.sample()
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
-            #ys = torch.cat([ys, next_word.view(-1, 1)], -1)
-            total_prob -= distrib.log_prob(next_word)
+            total_prob -= distrib.log_prob(next_word)*alpha
         ys = ys[:, 1:]
         all_sequences = torch.stack(torch.split(ys, batch_size))
         sentence_probabs= list(torch.split(total_prob, batch_size))    
@@ -230,16 +231,15 @@ class Model(nn.Module):
         predicted_sentences = [[join_strings(wordlist) for wordlist in predicted_output] 
             for predicted_output in predicted_outputs]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
-        # add gold
         all_gold_sentences = [gold_strings]*samples
+        # add gold/reference to sample space
         if add_gold:
             sentence_probabs.append(collect_gold_probs)
             predicted_sentences.append(gold_strings)
             all_gold_sentences.append(gold_strings)
         # calculate Qs
-        #sum_of_probabs = sum([probab*alpha for probab in sentence_probabs])
-        #list_of_Qs = [(probab*alpha)/sum_of_probabs for probab in sentence_probabs]
-        list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
+        list_of_Qs = torch.softmax(torch.stack(sentence_probabs), 0)
+        # calculate loss
         batch_loss = 0
         for index, Q in enumerate(list_of_Qs):
             for prediction, gold_ref, Q_iter in zip(predicted_sentences[index], all_gold_sentences[index], Q):
@@ -296,9 +296,10 @@ class Model(nn.Module):
         critic_logits = []
         critic_sequence = critic_encoder_output.new_full(size=[batch_size, 1], fill_value=self.bos_index, dtype=torch.long)
         critic_attention_vectors = None
-        #init dict to track eos
+        # init dict to track eos
         eos_dict = {i:-1 for i in range(batch_size)}
         finished = src_mask.new_zeros((batch_size)).byte()
+        # decode with actor
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
             logits, hidden, attention_scores, attention_vectors = self.decoder(
@@ -323,7 +324,7 @@ class Model(nn.Module):
                 if sampled_word_list[index] == self.eos_index:
                     if eos_dict[index] == -1:
                         eos_dict[index] = i 
-            # unroll critic
+            # decode with critic, using actor as target
             critic_logit, critic_hidden, critic_attention_scores, critic_attention_vectors = critic.decoder(
                 trg_embed=self.trg_embed(sampled_word.view(-1,1)),
                 encoder_output=critic_encoder_output,
@@ -346,13 +347,13 @@ class Model(nn.Module):
                 break
         ys = ys[:, 1:]
         critic_sequence = critic_sequence[:, 1:]
-        # calculate rewards
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
                                                         cut_at_eos=True)
         gold_output = self.trg_vocab.arrays_to_sentences(arrays=trg,
                                                     cut_at_eos=True)
         predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
+        # calculate rewards
         bleu_scores = []
         for prediction, gold_ref in zip(predicted_strings, gold_strings):
             bleu_scores.append(bleu([prediction], [gold_ref]))
