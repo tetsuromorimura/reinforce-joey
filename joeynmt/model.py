@@ -216,11 +216,11 @@ class Model(nn.Module):
                 pumped_ith_column = ith_column.repeat(samples)
                 stacked = torch.stack(list(torch.split(distrib.log_prob(pumped_ith_column), batch_size)))
                 gold_log_prob = stacked[0]
-                collect_gold_probs-=gold_log_prob*alpha
+                collect_gold_probs+=gold_log_prob
             distributions.append(distrib)
             next_word = distrib.sample()
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
-            total_prob -= distrib.log_prob(next_word)*alpha
+            total_prob += distrib.log_prob(next_word)
         ys = ys[:, 1:]
         all_sequences = torch.stack(torch.split(ys, batch_size))
         sentence_probabs= list(torch.split(total_prob, batch_size))    
@@ -238,7 +238,7 @@ class Model(nn.Module):
             predicted_sentences.append(gold_strings)
             all_gold_sentences.append(gold_strings)
         # calculate Qs
-        list_of_Qs = torch.softmax(torch.stack(sentence_probabs), 0)
+        list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
         # calculate loss
         batch_loss = 0
         for index, Q in enumerate(list_of_Qs):
