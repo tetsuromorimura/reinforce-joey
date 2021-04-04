@@ -170,7 +170,8 @@ class Model(nn.Module):
         :param log_probabilities: log probabilities
         :return: loss, probability logs
         """
-
+        if add_gold: 
+            samples = samples+1
         encoder_output, encoder_hidden = self._encode(src, src_length,
                     src_mask)
         # if maximum output length is not globally specified, adapt to src len
@@ -180,7 +181,6 @@ class Model(nn.Module):
         ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
         trg_mask = src_mask.new_ones([1, 1, 1])
         total_prob = 0
-        collect_gold_probs = 0 
         distributions = []
         attention_vectors = None
         encoder_output = encoder_output.repeat(samples,1,1)
@@ -209,16 +209,17 @@ class Model(nn.Module):
                 trg_mask=trg_mask
             )
             logits = logits[:, -1]/temperature
-            distrib = Categorical(logits=logits)
-            # get gold tokens and probabilities
-            if i < trg.shape[1]:
-                ith_column = trg[:,i]
-                pumped_ith_column = ith_column.repeat(samples)
-                stacked = torch.stack(list(torch.split(distrib.log_prob(pumped_ith_column), batch_size)))
-                gold_log_prob = stacked[0]
-                collect_gold_probs+=gold_log_prob
+            distrib = Categorical(logits=logits) 
             distributions.append(distrib)
             next_word = distrib.sample()
+            if add_gold: 
+                if i < trg.shape[1]:
+                    ith_column = trg[:,i]
+                else:
+                    tensor = torch.ones((samples,), dtype=torch.int64)
+                    data = self.pad_index
+                    ith_column = tensor.new_tensor(data)
+                next_word[-batch_size:] = ith_column
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
             total_prob += distrib.log_prob(next_word)
         ys = ys[:, 1:]
@@ -232,12 +233,6 @@ class Model(nn.Module):
             for predicted_output in predicted_outputs]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
         all_gold_sentences = [gold_strings]*samples
-        # add gold/reference to sample space
-        if add_gold:
-            sentence_probabs.append(collect_gold_probs)
-            predicted_sentences.append(gold_strings)
-            all_gold_sentences.append(gold_strings)
-        # calculate Qs
         list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
         # calculate loss
         batch_loss = 0
