@@ -216,8 +216,8 @@ class Model(nn.Module):
                 if i < trg.shape[1]:
                     ith_column = trg[:,i]
                 else:
-                    tensor = torch.ones((samples,), dtype=torch.int64)
-                    data = self.pad_index
+                    tensor = torch.ones((batch_size,), dtype=torch.int64)
+                    data = [self.pad_index]*batch_size
                     ith_column = tensor.new_tensor(data)
                 next_word[-batch_size:] = ith_column
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
