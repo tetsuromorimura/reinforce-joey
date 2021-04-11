@@ -62,6 +62,10 @@ B. From source
 ## Reference
 If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
 
+
+## Acknowledgements
+Thanks to [Michael Staniek](https://github.com/MStaniek) who was a great help with the implementations
+
 ```
 @inproceedings{kreutzer-etal-2019-joey,
     title = "Joey {NMT}: A Minimalist {NMT} Toolkit for Novices",
