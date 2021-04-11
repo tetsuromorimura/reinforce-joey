@@ -59,9 +59,11 @@ B. From source
 
 **Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
+## Acknowledgements
+Thanks to [Michael Staniek](https://github.com/MStaniek) who was a great help with the implementations
+
 ## Reference
 If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
-
 
 ## Acknowledgements
 Thanks to [Michael Staniek](https://github.com/MStaniek) who was a great help with the implementations
