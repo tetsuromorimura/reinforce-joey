@@ -128,7 +128,7 @@ class Model(nn.Module):
             distrib = Categorical(logits=logits)
             distributions.append(distrib)
             next_word = distrib.sample()
-            log_probs -= distrib.log_prob(next_word)
+            log_probs += distrib.log_prob(next_word)
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
             # check if previous symbol was <eos>
             is_eos = torch.eq(next_word, self.eos_index)

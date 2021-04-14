@@ -126,6 +126,6 @@ class ReinforceLoss(nn.Module):
                 average_bleu = sum([score for score in self.bleu])/self.counter
                 bleu_scores = [score - average_bleu for score in bleu_scores]
             # calculate PG loss with rewards and log probs
-        loss = sum([log_prob*bleu_score \
+        loss = sum([-log_prob*bleu_score \
                 for log_prob, bleu_score in zip(log_probs, bleu_scores)])
         return loss, bleu_scores, unscaled_rewards
