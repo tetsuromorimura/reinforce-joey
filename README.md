@@ -25,13 +25,13 @@ Here a short explanation of the parameters.
 * Policy Gradient/Reinforce:   
   * reward: 
     * bleu: standard corpus_bleu from sacrebleu
-    * scaled_bleu: scales the BLEU locally to the interval [-0.5, 0.5] for each batch
+    * scaled_bleu: scale the BLEU locally to the interval [-0.5, 0.5] for each batch
     * constant: constant reward of 1 
   * baseline: 
     * False: no baseline
-    * average_reward_baseline: subtracts a running average of all previous BLEUs from the rewards
+    * average_reward_baseline: subtract a running average of all previous BLEUs from the rewards
 * MRT:  
-  * add_gold: adds gold/reference to sample space
+  * add_gold: add gold/reference to sample space
   * samples: number of samples
   * alpha: mrt smoothness parameter 
   Advantage Actor-Critic:  
