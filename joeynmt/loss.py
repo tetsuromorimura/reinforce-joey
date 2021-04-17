@@ -104,7 +104,7 @@ class ReinforceLoss(nn.Module):
         bleu_scores = [bleu([prediction], [gold_ref]) \
                 for prediction, gold_ref in zip(predicted, gold)]
         # save unscaled rewards for logging
-        unscaled_rewards = bleu_scores
+        unscaled_rewards = bleu_scores.copy()
         if self.reward == "constant":
             bleu_scores = [1 for log_prob in log_probs]
             #loss = sum([log_prob for log_prob in log_probs])
@@ -123,9 +123,9 @@ class ReinforceLoss(nn.Module):
                 # this baseline is calculated by using a global average
                 self.bleu.append(sum(bleu_scores))
                 self.counter += len(bleu_scores)
-                average_bleu = sum([score for score in self.bleu])/self.counter
+                average_bleu = sum(self.bleu)/self.counter
                 bleu_scores = [score - average_bleu for score in bleu_scores]
-            # calculate PG loss with rewards and log probs
+        # calculate PG loss with rewards and log probs
         loss = sum([-log_prob*bleu_score \
                 for log_prob, bleu_score in zip(log_probs, bleu_scores)])
         return loss, bleu_scores, unscaled_rewards
