@@ -1,5 +1,5 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
-This is a fork of the awesome Joey-NMT which contains the implementations of several Reinforcement Learning algorithms, reward functions and baselines.
+This is a fork of the awesome Joey-NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
@@ -30,6 +30,7 @@ Here a short explanation of the parameters.
   * baseline: 
     * False: no baseline
     * average_reward_baseline: subtract a running average of all previous BLEUs from the rewards
+    * learned_reward_baseline: train a regression network to estimate BLEUs (usually worse than average bl., currently only on the learned_reward branch)
 * MRT:  
   * add_gold: add gold/reference to sample space
   * samples: number of samples
