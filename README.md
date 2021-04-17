@@ -3,7 +3,7 @@ This is a fork of the awesome Joey-NMT which contains the implementations of sev
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
-[REINFORCE](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L152), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L255)   
+[REINFORCE](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L80), [MRT](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L153), [NED_A2C](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L250)   
  
  The implemented papers can be found here:  
  
@@ -11,11 +11,11 @@ The forward pass of each method can be found here:
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Each algorithm can be used with the Transformer and the RNN architecture. 
+Each algorithm can be used with Transformers and RNNs. 
 
 ## How to use 
 In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
-That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune with RL. 
+That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune it with RL. 
 
 ## Parameters
 The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
@@ -60,7 +60,7 @@ B. From source
 **Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 ## Acknowledgements
-Thanks to [Michael Staniek](https://github.com/MStaniek) who was a great help with the implementations
+Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who helped with implementation details and his knowledge about Reinforcement Learning
 
 ## Reference
 If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
