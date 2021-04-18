@@ -1,5 +1,5 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
-This is a fork of the awesome Joey-NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
+This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
