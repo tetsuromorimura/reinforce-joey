@@ -38,11 +38,6 @@ Here a short explanation of the parameters.
   Advantage Actor-Critic:  
 * critic_learning_rate: learning rate of critic network
 
-## Currently WIP: 
-- fix NED-A2C for Transformer
-- improve logging/add more options 
-- add learned baseline parameters to config
-
 ## Installation
 Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
 
