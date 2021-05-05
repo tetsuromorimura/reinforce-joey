@@ -11,7 +11,7 @@ The forward pass of each method can be found here:
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Each algorithm can be used with Transformers and RNNs. 
+Policy Gradient and MRT can be used with both Transformers and RNNs but NED-A2C  is currently only implemented for RNNs. 
 
 ## How to use 
 In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
