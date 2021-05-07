@@ -1,9 +1,9 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
-This is a fork of the awesome Joey-NMT which contains the implementations of several Reinforcement Learning algorithms, reward functions and baselines.
+This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
-[REINFORCE](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L80), [MRT](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L152), [NED_A2C](https://github.com/samukie/reinforce-joey/blob/b10f93314ccc9f3994e38b21c4b1ed21519747cc/joeynmt/model.py#L255)   
+[REINFORCE](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L80), [MRT](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L153), [NED_A2C](https://github.com/samuki/reinforce-joey/blob/3b12dfe40687155d95d7f45608be90595866d542/joeynmt/model.py#L250)   
  
  The implemented papers can be found here:  
  
@@ -11,11 +11,11 @@ The forward pass of each method can be found here:
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Each algorithm can be used with the Transformer and the RNN architecture. 
+Policy Gradient and MRT can be used with both Transformers and RNNs but NED-A2C  is currently only implemented for RNNs. 
 
 ## How to use 
 In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
-That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune with RL. 
+That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune it with RL. 
 
 ## Parameters
 The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
@@ -25,22 +25,18 @@ Here a short explanation of the parameters.
 * Policy Gradient/Reinforce:   
   * reward: 
     * bleu: standard corpus_bleu from sacrebleu
-    * scaled_bleu: scales the BLEU locally to the interval [-0.5, 0.5] for each batch
+    * scaled_bleu: scale the BLEU locally to the interval [-0.5, 0.5] for each batch
     * constant: constant reward of 1 
   * baseline: 
     * False: no baseline
-    * average_reward_baseline: subtracts a running average of all previous BLEUs from the rewards
+    * average_reward_baseline: subtract a running average of all previous BLEUs from the rewards
+    * learned_reward_baseline: train a regression network to estimate BLEUs (usually worse than average bl., currently only on the learned_reward branch)
 * MRT:  
-  * add_gold: adds gold/reference to sample space
+  * add_gold: add gold/reference to sample space
   * samples: number of samples
   * alpha: mrt smoothness parameter 
   Advantage Actor-Critic:  
 * critic_learning_rate: learning rate of critic network
-
-## Currently WIP: 
-- fix NED-A2C for Transformer
-- improve logging/add more options 
-- add learned baseline parameters to config
 
 ## Installation
 Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
@@ -60,7 +56,7 @@ B. From source
 **Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 ## Acknowledgements
-Thanks to [Michael Staniek](https://github.com/MStaniek) who was a great help with the implementations
+Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who helped with implementation details and his knowledge about Reinforcement Learning
 
 ## Reference
 If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
