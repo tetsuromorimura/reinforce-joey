@@ -104,7 +104,7 @@ class ReinforceLoss(nn.Module):
         bleu_scores = [bleu([prediction], [gold_ref]) \
                 for prediction, gold_ref in zip(predicted, gold)]
         # save unscaled rewards for logging
-        unscaled_rewards = bleu_scores.copy()
+        unscaled_rewards = bleu_scores
         if self.reward == "constant":
             bleu_scores = [1 for log_prob in log_probs]
             #loss = sum([log_prob for log_prob in log_probs])
