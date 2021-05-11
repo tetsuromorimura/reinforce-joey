@@ -7,11 +7,6 @@ import torch
 from torch import nn, Tensor
 from torch.autograd import Variable
 from joeynmt.metrics import bleu
-import sacrebleu
-import numpy as np
-from random import sample
-from joeynmt.model import RewardRegressionModel
-
 
 class XentLoss(nn.Module):
     """
@@ -91,7 +86,7 @@ class ReinforceLoss(nn.Module):
         self.baseline = baseline
         self.reward = reward
         self.bleu = []
-        self.counter = 0 
+        self.counter = 0
         
     def forward(self, predicted, gold, log_probs):
         """
@@ -99,7 +94,7 @@ class ReinforceLoss(nn.Module):
 
         :param predicted: predicted sentences
         :param gold: gold sentences
-        :return: loss, rewards for logging, unscaled rewards for logging before scaling 
+        :return: loss, rewards for logging, unscaled rewards for logging
         """
         bleu_scores = [bleu([prediction], [gold_ref]) \
                 for prediction, gold_ref in zip(predicted, gold)]
@@ -107,20 +102,19 @@ class ReinforceLoss(nn.Module):
         unscaled_rewards = bleu_scores
         if self.reward == "constant":
             bleu_scores = [1 for log_prob in log_probs]
-            #loss = sum([log_prob for log_prob in log_probs])
         elif self.reward == "scaled_bleu":
-                def scale(reward, a, b, minim, maxim):
-                    if maxim-minim == 0:
-                        return 0
-                    else: 
-                        return (((b-a)*(reward - minim))/(maxim-minim)) + a 
-                # scale locally
-                maxim = max(bleu_scores)
-                minim = min(bleu_scores)
-                bleu_scores = [scale(score, -0.5, 0.5, minim, maxim) for score in bleu_scores]
+            def scale(reward, a, b, minim, maxim):
+                if maxim-minim == 0:
+                    return 0
+                return (((b-a)*(reward - minim))/(maxim-minim)) + a
+            # local scale
+            maxim = max(bleu_scores)
+            minim = min(bleu_scores)
+            bleu_scores = [scale(score, -0.5, 0.5, minim, maxim) \
+                for score in bleu_scores]
         elif self.reward == "bleu":
             if self.baseline == "average_reward_baseline":
-                # this baseline is calculated by using a global average
+                # global average
                 self.bleu.append(sum(bleu_scores))
                 self.counter += len(bleu_scores)
                 average_bleu = sum(self.bleu)/self.counter
