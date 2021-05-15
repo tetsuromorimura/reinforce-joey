@@ -22,7 +22,6 @@ from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from torchtext.data import Dataset
-
 from joeynmt.model import build_model
 from joeynmt.batch import Batch
 from joeynmt.helpers import log_data_info, load_config, log_cfg, \
@@ -805,7 +804,73 @@ class TrainManager:
             pickle.dump(self.collected_gold_ranks, f)
         """    
         # calculate and log tracking of the gold tokens 
-        if self.epoch_gold_ranks != []:
+        if self.epoch_gold_ranks ==[]:    
+            number_of_gold_tokens_below_topk = 0 
+            number_of_gold_tokens_between_in_topk = 0
+            number_of_gold_tokens_in_top10 = 0
+            number_of_gold_tokens_in_rank10 = 0
+            number_of_gold_tokens_in_rank9 = 0
+            number_of_gold_tokens_in_rank8 = 0
+            number_of_gold_tokens_in_rank7 = 0
+            number_of_gold_tokens_in_rank6 = 0
+            number_of_gold_tokens_in_rank5 = 0
+            number_of_gold_tokens_in_rank4 = 0
+            number_of_gold_tokens_in_rank3 = 0
+            number_of_gold_tokens_in_rank2 = 0
+            number_of_gold_tokens_in_rank1 = 0
+            number_of_gold_tokens_in_rank0 = 0
+
+            for current_gold_ranks in gold_token_ranks:
+                for current_gold_rank in current_gold_ranks:
+                    if current_gold_rank == 900:
+                        number_of_gold_tokens_below_topk +=1
+                    elif current_gold_rank < 900 and current_gold_rank > 10:
+                        number_of_gold_tokens_between_in_topk += 1
+                    elif current_gold_rank <= 10: 
+                        number_of_gold_tokens_in_top10 += 1
+                    if current_gold_rank == 10: 
+                        number_of_gold_tokens_in_rank10 += 1
+                    elif current_gold_rank == 9: 
+                        number_of_gold_tokens_in_rank9 += 1
+                    elif current_gold_rank == 8: 
+                        number_of_gold_tokens_in_rank8 += 1
+                    elif current_gold_rank == 7: 
+                        number_of_gold_tokens_in_rank7 += 1
+                    elif current_gold_rank == 6: 
+                        number_of_gold_tokens_in_rank6 += 1
+                    elif current_gold_rank == 5: 
+                        number_of_gold_tokens_in_rank5 += 1
+                    elif current_gold_rank == 4: 
+                        number_of_gold_tokens_in_rank4 += 1
+                    elif current_gold_rank == 3: 
+                        number_of_gold_tokens_in_rank3 += 1
+                    elif current_gold_rank == 2: 
+                        number_of_gold_tokens_in_rank2 += 1
+                    elif current_gold_rank == 1: 
+                        number_of_gold_tokens_in_rank1 += 1
+                    elif current_gold_rank == 0: 
+                        number_of_gold_tokens_in_rank0 += 1
+            self.gold_token_logger.info("Gold tokens below topk %5d \n"
+            "Gold tokens in topk %5d \n"
+            "Gold tokens in top10 %5d \n"
+            "Gold tokens rank 10 %5d \n"
+            "Gold tokens rank 9 %5d \n"
+            "Gold tokens rank 8 %5d \n"
+            "Gold tokens rank 7 %5d \n"
+            "Gold tokens rank 6 %5d \n"
+            "Gold tokens rank 5 %5d \n"
+            "Gold tokens rank 4 %5d \n"
+            "Gold tokens rank 3 %5d \n"
+            "Gold tokens rank 2 %5d \n"
+            "Gold tokens rank 1  %5d \n"
+            "Gold tokens rank 0  %5d \n", 
+            number_of_gold_tokens_below_topk, number_of_gold_tokens_between_in_topk,
+                number_of_gold_tokens_in_top10, number_of_gold_tokens_in_rank10, number_of_gold_tokens_in_rank9,
+                number_of_gold_tokens_in_rank8, number_of_gold_tokens_in_rank7, number_of_gold_tokens_in_rank6, 
+                number_of_gold_tokens_in_rank5, number_of_gold_tokens_in_rank4, number_of_gold_tokens_in_rank3,
+                number_of_gold_tokens_in_rank2, number_of_gold_tokens_in_rank1, number_of_gold_tokens_in_rank0)
+
+        elif self.epoch_gold_ranks != []:
             number_of_gold_tokens_below_topk = 0 
             number_of_gold_tokens_between_in_topk = 0
             number_of_gold_tokens_in_top10 = 0
@@ -844,11 +909,15 @@ class TrainManager:
             for current_gold_ranks, previous_gold_ranks in zip(gold_token_ranks, previous_step_gold_ranks):
                 for current_gold_rank, previous_gold_rank in zip(current_gold_ranks, previous_gold_ranks):
                     if current_gold_rank == 900:
+                        #print('ok')
                         number_of_gold_tokens_below_topk +=1
                     elif current_gold_rank < 900 and current_gold_rank > 10:
                         number_of_gold_tokens_between_in_topk += 1
                     elif current_gold_rank <= 10: 
                         number_of_gold_tokens_in_top10 += 1
+                    else: 
+                        print('yoo')
+                        print(current_gold_rank)
                     if current_gold_rank == 10: 
                         number_of_gold_tokens_in_rank10 += 1
                     elif current_gold_rank == 9: 
@@ -917,7 +986,7 @@ class TrainManager:
             "Gold tokens rank 3 %5d \n"
             "Gold tokens rank 2 %5d \n"
             "Gold tokens rank 1  %5d \n"
-            "Gold tokens rank 1  %5d \n", 
+            "Gold tokens rank 0  %5d \n", 
             number_of_gold_tokens_below_topk, number_of_gold_tokens_between_in_topk,
                 number_of_gold_tokens_in_top10, number_of_gold_tokens_in_rank10, number_of_gold_tokens_in_rank9,
                 number_of_gold_tokens_in_rank8, number_of_gold_tokens_in_rank7, number_of_gold_tokens_in_rank6, 

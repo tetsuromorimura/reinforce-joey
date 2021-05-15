@@ -195,6 +195,7 @@ class Model(nn.Module):
         # repeat tensor for vectorized solution
         ys = ys.repeat(samples, 1)
         src_mask = src_mask.repeat(samples,1,1)
+        finished = src_mask.new_zeros((batch_size*samples)).byte()
         # decode tokens
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
@@ -222,6 +223,11 @@ class Model(nn.Module):
                 next_word[-batch_size:] = ith_column
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
             total_prob += distrib.log_prob(next_word)
+            is_eos = torch.eq(next_word, self.eos_index)
+            finished += is_eos
+            # stop predicting if <eos> reached for all elements in batch
+            if (finished >= 1).sum() == batch_size*samples:
+                break
         ys = ys[:, 1:]
         all_sequences = torch.stack(torch.split(ys, batch_size))
         sentence_probabs= list(torch.split(total_prob, batch_size))    
@@ -391,7 +397,6 @@ class Model(nn.Module):
         return_tuple = (None, None, None, None)
         if return_type == "loss":
             assert self.loss_function is not None
-
             out, _, _, _ = self._encode_decode(
                 src=kwargs["src"],
                 trg_input=kwargs["trg_input"],
@@ -408,7 +413,6 @@ class Model(nn.Module):
             # return batch loss
             #     = sum over all elements in batch that are not pad
             return_tuple = (batch_loss, None, None, None)
-
         elif return_type == "reinforce":
             loss, logging = self.reinforce(
             src=kwargs["src"],
