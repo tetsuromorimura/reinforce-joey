@@ -82,12 +82,18 @@ class TrainManager:
         self.alpha = train_config["reinforcement_learning"]["hyperparameters"].get("alpha", 0.005)
         self.add_gold = train_config["reinforcement_learning"]["hyperparameters"].get("add_gold", False)
         self.log_probabilities = train_config["reinforcement_learning"].get("log_probabilities", False)
+        self.pickle_logs = train_config["reinforcement_learning"].get("pickle_logs", False)
         self.topk = train_config["reinforcement_learning"].get("topk", 20)
 
         if self.log_probabilities:
             self.entropy_logger = make_retro_logger("{}/entropy.log".format(self.model_dir), "entropy_logger")
-            self.gold_token_logger = make_retro_logger("{}/gold_token.log".format(self.model_dir), "gold_token_logger")
             self.probability_logger = make_retro_logger("{}/probability.log".format(self.model_dir), "probability_logger")
+
+        if self.pickle_logs: 
+            self.collected_gold_ranks = []
+            self.collected_top10_probabilities = []
+            self.collected_highest_probabilities = []
+            self.collected_gold_probabilities = []
 
         self.critic = None
         if self.method == "a2c":
@@ -396,13 +402,6 @@ class TrainManager:
             self.device, self.n_gpu, self.fp16, self.batch_multiplier,
             self.batch_size//self.n_gpu if self.n_gpu > 1 else self.batch_size,
             self.batch_size * self.batch_multiplier)
-
-        self.epoch_ranks = []
-        self.epoch_gold_ranks = []
-        self.collected_top10_probability = []
-        self.collected_highest_probability = []
-        self.collected_gold_probability = []
-        self.collected_gold_ranks = []
 
         for epoch_no in range(self.epochs):
             logger.info("EPOCH %d", epoch_no + 1)
@@ -759,268 +758,42 @@ class TrainManager:
     def _log_reinforcement_learning(self, valid_logs, epoch_no, valid_hypotheses):
         entropy, gold_strings, predicted_strings, highest_words, total_probability, \
                 highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = valid_logs
-                    
+        
         self.probability_logger.info(
                 "Epoch %3d Step: %8d \n",
                 epoch_no + 1, self.stats.steps)
-
         self.entropy_logger.info(
                 "Epoch %3d Step: %8d \n"
                 "Entropy: %12.8f",  
                 epoch_no + 1, self.stats.steps, entropy)
-
-        self.gold_token_logger.info(
-                "Epoch %3d Step: %8d \n",
-                epoch_no + 1, self.stats.steps)
-
-        batch_ranks = []
-
+        
         total_probability = [torch.stack(el) for el in total_probability if el != []]
         highest_prob = [torch.stack(el) for el in highest_prob if el != []]
         gold_probabilities = [torch.stack(el) for el in gold_probabilities if el != []]
-
         average_total_prob = torch.mean(torch.stack([torch.mean(el) for el in total_probability]))
         average_highest_prob = torch.mean(torch.stack([torch.mean(el) for el in highest_prob]))
         average_gold_prob = torch.mean(torch.stack([torch.mean(el) for el in gold_probabilities]))
-        
-        self.collected_top10_probability.append(total_probability)
-        self.collected_highest_probability.append(highest_prob)
-        self.collected_gold_probability.append(gold_probabilities)
-        self.collected_gold_ranks.append(gold_token_ranks)
         
         self.probability_logger.info(
         "Average Top10 Probability: %2.4f \n"
         "Average Highest Probability: %2.4f \n"
         "Average Gold Probability: %2.4f \n", \
                 average_total_prob, average_highest_prob, average_gold_prob)
-        """
-        with open(self.model_dir+"/top10.pickle", "wb") as f:
-            pickle.dump(self.collected_top10_probability, f)
-        with open(self.model_dir+"/highest_prob.pickle", "wb") as f:
-            pickle.dump(self.collected_highest_probability, f)
-        with open(self.model_dir+"/gold_token.pickle", "wb") as f:
-            pickle.dump(self.collected_gold_probability, f)
-        with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
-            pickle.dump(self.collected_gold_ranks, f)
-        """    
-        # calculate and log tracking of the gold tokens 
-        if self.epoch_gold_ranks ==[]:    
-            number_of_gold_tokens_below_topk = 0 
-            number_of_gold_tokens_between_in_topk = 0
-            number_of_gold_tokens_in_top10 = 0
-            number_of_gold_tokens_in_rank10 = 0
-            number_of_gold_tokens_in_rank9 = 0
-            number_of_gold_tokens_in_rank8 = 0
-            number_of_gold_tokens_in_rank7 = 0
-            number_of_gold_tokens_in_rank6 = 0
-            number_of_gold_tokens_in_rank5 = 0
-            number_of_gold_tokens_in_rank4 = 0
-            number_of_gold_tokens_in_rank3 = 0
-            number_of_gold_tokens_in_rank2 = 0
-            number_of_gold_tokens_in_rank1 = 0
-            number_of_gold_tokens_in_rank0 = 0
-
-            for current_gold_ranks in gold_token_ranks:
-                for current_gold_rank in current_gold_ranks:
-                    if current_gold_rank == 900:
-                        number_of_gold_tokens_below_topk +=1
-                    elif current_gold_rank < 900 and current_gold_rank > 10:
-                        number_of_gold_tokens_between_in_topk += 1
-                    elif current_gold_rank <= 10: 
-                        number_of_gold_tokens_in_top10 += 1
-                    if current_gold_rank == 10: 
-                        number_of_gold_tokens_in_rank10 += 1
-                    elif current_gold_rank == 9: 
-                        number_of_gold_tokens_in_rank9 += 1
-                    elif current_gold_rank == 8: 
-                        number_of_gold_tokens_in_rank8 += 1
-                    elif current_gold_rank == 7: 
-                        number_of_gold_tokens_in_rank7 += 1
-                    elif current_gold_rank == 6: 
-                        number_of_gold_tokens_in_rank6 += 1
-                    elif current_gold_rank == 5: 
-                        number_of_gold_tokens_in_rank5 += 1
-                    elif current_gold_rank == 4: 
-                        number_of_gold_tokens_in_rank4 += 1
-                    elif current_gold_rank == 3: 
-                        number_of_gold_tokens_in_rank3 += 1
-                    elif current_gold_rank == 2: 
-                        number_of_gold_tokens_in_rank2 += 1
-                    elif current_gold_rank == 1: 
-                        number_of_gold_tokens_in_rank1 += 1
-                    elif current_gold_rank == 0: 
-                        number_of_gold_tokens_in_rank0 += 1
-            self.gold_token_logger.info("Gold tokens below topk %5d \n"
-            "Gold tokens in topk %5d \n"
-            "Gold tokens in top10 %5d \n"
-            "Gold tokens rank 10 %5d \n"
-            "Gold tokens rank 9 %5d \n"
-            "Gold tokens rank 8 %5d \n"
-            "Gold tokens rank 7 %5d \n"
-            "Gold tokens rank 6 %5d \n"
-            "Gold tokens rank 5 %5d \n"
-            "Gold tokens rank 4 %5d \n"
-            "Gold tokens rank 3 %5d \n"
-            "Gold tokens rank 2 %5d \n"
-            "Gold tokens rank 1  %5d \n"
-            "Gold tokens rank 0  %5d \n", 
-            number_of_gold_tokens_below_topk, number_of_gold_tokens_between_in_topk,
-                number_of_gold_tokens_in_top10, number_of_gold_tokens_in_rank10, number_of_gold_tokens_in_rank9,
-                number_of_gold_tokens_in_rank8, number_of_gold_tokens_in_rank7, number_of_gold_tokens_in_rank6, 
-                number_of_gold_tokens_in_rank5, number_of_gold_tokens_in_rank4, number_of_gold_tokens_in_rank3,
-                number_of_gold_tokens_in_rank2, number_of_gold_tokens_in_rank1, number_of_gold_tokens_in_rank0)
-
-        elif self.epoch_gold_ranks != []:
-            number_of_gold_tokens_below_topk = 0 
-            number_of_gold_tokens_between_in_topk = 0
-            number_of_gold_tokens_in_top10 = 0
-            number_of_gold_tokens_in_rank10 = 0
-            number_of_gold_tokens_in_rank9 = 0
-            number_of_gold_tokens_in_rank8 = 0
-            number_of_gold_tokens_in_rank7 = 0
-            number_of_gold_tokens_in_rank6 = 0
-            number_of_gold_tokens_in_rank5 = 0
-            number_of_gold_tokens_in_rank4 = 0
-            number_of_gold_tokens_in_rank3 = 0
-            number_of_gold_tokens_in_rank2 = 0
-            number_of_gold_tokens_in_rank1 = 0
-            number_of_gold_tokens_in_rank0 = 0
-
-            if self.stats.steps % 1000 == 0:
-                total_gold_rank_increases = 0
-                total_gold_rank_decreases = 0 
-                no_changes = 0 
-                previous_step_gold_ranks = self.epoch_gold_ranks[0]
-                number_of_rank_increases_from_below_topk = 0 
-                number_of_rank_increases_from_topk = 0 
-                number_of_rank_increases_from_top10 = 0
-                number_of_rank_increases_from_top3 = 0
-                number_of_rank_increases_from_below_topk_to_top3 = 0
-                number_of_rank_increases_from_below_top10_to_top3 = 0
-                number_of_rank_decreases_from_0 = 0
-                number_of_rank_decreases_from_top3 = 0
-                number_of_rank_decreases_from_top10 = 0
-                number_of_rank_increases_to_0 =0
-                number_of_rank_increases_to_top3 = 0
-                number_of_rank_increases_to_top10 = 0
-            else: 
-                previous_step_gold_ranks = self.epoch_gold_ranks[-1]
-
-            for current_gold_ranks, previous_gold_ranks in zip(gold_token_ranks, previous_step_gold_ranks):
-                for current_gold_rank, previous_gold_rank in zip(current_gold_ranks, previous_gold_ranks):
-                    if current_gold_rank == 900:
-                        #print('ok')
-                        number_of_gold_tokens_below_topk +=1
-                    elif current_gold_rank < 900 and current_gold_rank > 10:
-                        number_of_gold_tokens_between_in_topk += 1
-                    elif current_gold_rank <= 10: 
-                        number_of_gold_tokens_in_top10 += 1
-                    else: 
-                        print('yoo')
-                        print(current_gold_rank)
-                    if current_gold_rank == 10: 
-                        number_of_gold_tokens_in_rank10 += 1
-                    elif current_gold_rank == 9: 
-                        number_of_gold_tokens_in_rank9 += 1
-                    elif current_gold_rank == 8: 
-                        number_of_gold_tokens_in_rank8 += 1
-                    elif current_gold_rank == 7: 
-                        number_of_gold_tokens_in_rank7 += 1
-                    elif current_gold_rank == 6: 
-                        number_of_gold_tokens_in_rank6 += 1
-                    elif current_gold_rank == 5: 
-                        number_of_gold_tokens_in_rank5 += 1
-                    elif current_gold_rank == 4: 
-                        number_of_gold_tokens_in_rank4 += 1
-                    elif current_gold_rank == 3: 
-                        number_of_gold_tokens_in_rank3 += 1
-                    elif current_gold_rank == 2: 
-                        number_of_gold_tokens_in_rank2 += 1
-                    elif current_gold_rank == 1: 
-                        number_of_gold_tokens_in_rank1 += 1
-                    elif current_gold_rank == 0: 
-                        number_of_gold_tokens_in_rank0 += 1
-                    
-                    if self.stats.steps % 1000 == 0:
-                        if current_gold_rank < previous_gold_rank:
-                            total_gold_rank_increases += 1
-                        elif current_gold_rank > previous_gold_rank:
-                            total_gold_rank_decreases += 1
-                        else: 
-                            no_changes +=1
-                        if previous_gold_rank == 900 and current_gold_rank < 900:
-                            number_of_rank_increases_from_below_topk += 1
-                        elif previous_gold_rank < 900 and previous_gold_rank > 10 and current_gold_rank <= 10:
-                            number_of_rank_increases_from_topk += 1
-                        elif previous_gold_rank <= 10 and previous_gold_rank > 3 and current_gold_rank <= 3:
-                            number_of_rank_increases_from_top10 +=1
-                        elif previous_gold_rank <= 3 and previous_gold_rank > 0 and current_gold_rank == 0:
-                            number_of_rank_increases_from_top3 +=1  
-                        if previous_gold_rank == 900 and current_gold_rank <= 3:
-                            number_of_rank_increases_from_below_topk_to_top3 += 1
-                        if previous_gold_rank < 900 and previous_gold_rank > 10 and current_gold_rank <= 3:
-                            number_of_rank_increases_from_below_top10_to_top3 +=1
-                        if previous_gold_rank > 0 and current_gold_rank ==0:
-                            number_of_rank_increases_to_0+=1
-                        if previous_gold_rank > 3 and current_gold_rank <= 3:
-                            number_of_rank_increases_to_top3 += 1
-                        if previous_gold_rank > 10 and current_gold_rank <= 10:
-                            number_of_rank_increases_to_top10+=1  
-                        if previous_gold_rank == 0 and current_gold_rank > 0:
-                            number_of_rank_decreases_from_0+=1
-                        if previous_gold_rank <= 3 and current_gold_rank > 3:
-                            number_of_rank_decreases_from_top3 += 1
-                        if previous_gold_rank <= 10 and current_gold_rank > 10:
-                            number_of_rank_decreases_from_top10+=1        
-                    #logging
-            self.gold_token_logger.info("Gold tokens below topk %5d \n"
-            "Gold tokens in topk %5d \n"
-            "Gold tokens in top10 %5d \n"
-            "Gold tokens rank 10 %5d \n"
-            "Gold tokens rank 9 %5d \n"
-            "Gold tokens rank 8 %5d \n"
-            "Gold tokens rank 7 %5d \n"
-            "Gold tokens rank 6 %5d \n"
-            "Gold tokens rank 5 %5d \n"
-            "Gold tokens rank 4 %5d \n"
-            "Gold tokens rank 3 %5d \n"
-            "Gold tokens rank 2 %5d \n"
-            "Gold tokens rank 1  %5d \n"
-            "Gold tokens rank 0  %5d \n", 
-            number_of_gold_tokens_below_topk, number_of_gold_tokens_between_in_topk,
-                number_of_gold_tokens_in_top10, number_of_gold_tokens_in_rank10, number_of_gold_tokens_in_rank9,
-                number_of_gold_tokens_in_rank8, number_of_gold_tokens_in_rank7, number_of_gold_tokens_in_rank6, 
-                number_of_gold_tokens_in_rank5, number_of_gold_tokens_in_rank4, number_of_gold_tokens_in_rank3,
-                number_of_gold_tokens_in_rank2, number_of_gold_tokens_in_rank1, number_of_gold_tokens_in_rank0)
-
-            if self.stats.steps % 1000 == 0:
-                self.gold_token_logger.info("Changes from below topk to topk %5d \n"
-                "Changes below topk to top10 %5d \n"
-                "Changes from top10 to top3 %5d \n"
-                "Changes from 3 to 0 %5d \n"
-                "Changes from below topk to 3 %5d \n"
-                "Changes from below top10 to 3 %5d \n"
-
-                "Increases to 0 %5d \n"
-                "Increases to top3 %5d \n"
-                "Increases to top10 %5d \n"
-
-                "Decreases from 0 below %5d \n"
-                "Decreases from top3 below %5d \n"
-                "Decreases from top10 below %5d \n"
-
-                "Total gold token increases  %5d \n"
-                "Total gold token decreases  %5d \n"
-                "Gold token stayed the same  %5d \n", 
-                number_of_rank_increases_from_below_topk, number_of_rank_increases_from_topk, number_of_rank_increases_from_top10, 
-                number_of_rank_increases_from_top3, number_of_rank_increases_from_below_topk_to_top3, number_of_rank_increases_from_below_top10_to_top3,
-                number_of_rank_increases_to_0, number_of_rank_increases_to_top3, number_of_rank_increases_to_top10,
-                number_of_rank_decreases_from_0, number_of_rank_decreases_from_top3, number_of_rank_decreases_from_top10,
-                total_gold_rank_increases, total_gold_rank_decreases, no_changes)
-
-        self.epoch_ranks.append(batch_ranks)
-        self.epoch_gold_ranks.append(gold_token_ranks)
-
+        
+        if self.pickle_logs:
+            self.collected_top10_probabilities.append(total_probability)
+            self.collected_highest_probabilities.append(highest_prob)
+            self.collected_gold_probabilities.append(gold_probabilities)
+            self.collected_gold_ranks.append(gold_token_ranks)
+            with open(self.model_dir+"/top10.pickle", "wb") as f:
+                pickle.dump(self.collected_top10_probabilities, f)
+            with open(self.model_dir+"/highest_prob.pickle", "wb") as f:
+                pickle.dump(self.collected_highest_probabilities, f)
+            with open(self.model_dir+"/gold_token.pickle", "wb") as f:
+                pickle.dump(self.collected_gold_probabilities, f)
+            with open(self.model_dir+"/gold_ranks.pickle", "wb") as f:
+                pickle.dump(self.collected_gold_ranks, f)
+        
     def _store_outputs(self, hypotheses: List[str]) -> None:
         """
         Write current validation outputs to file in `self.model_dir.`

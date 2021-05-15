@@ -105,7 +105,6 @@ def validate_on_data(model: Model, data: Dataset,
     # don't track gradients during validation
     with torch.no_grad():
         valid_data = [[] for i in range(11)]
-        valid_data[0] = 0
         entropy_divider = 0
         all_outputs = []
         valid_attention_scores = []
@@ -151,18 +150,9 @@ def validate_on_data(model: Model, data: Dataset,
                 total_nseqs += batch.nseqs
 
                 if reinforcement_learning and log_probabilities:
-                    entropy, gold_strings, predicted_strings, highest_words, total_probability, highest_word, highest_prob, gold_probabilities, gold_token_ranks, rewards, old_bleus = distribution
-                    valid_data[0] += entropy
-                    valid_data[1].extend(gold_strings)
-                    valid_data[2].extend(predicted_strings)
-                    valid_data[3].extend(highest_words)
-                    valid_data[4].extend(total_probability)
-                    valid_data[5].extend(highest_word)
-                    valid_data[6].extend(highest_prob)
-                    valid_data[7].extend(gold_probabilities)
-                    valid_data[8].extend(gold_token_ranks)
-                    valid_data[9].append(rewards)
-                    valid_data[10].extend(old_bleus)
+                    distribution[0] = [distribution[0]]
+                    for index, item in enumerate(distribution):
+                        valid_data[index].extend(item)
 
             # run as during inference to produce translations
             output, attention_scores = run_batch(
@@ -226,7 +216,8 @@ def validate_on_data(model: Model, data: Dataset,
                     valid_hypotheses, valid_references)
         else:
             current_valid_score = -1
-    valid_data[0] = valid_data[0]/entropy_divider
+    valid_data[0] = torch.mean(torch.stack(valid_data[0]))
+
     return current_valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
         decoded_valid, valid_attention_scores, valid_data
