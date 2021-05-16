@@ -23,6 +23,7 @@ data: # specify your data here
         use_reinforcement_learning: False         # specify if reinforcement learning is being used
         method: "reinforce"                       # RL-method: 'reinforce', 'mrt' or 'a2c'
         log_probabilities: True                   # log token probabilities
+        pickle_logs: False                        # create pickle files with probabilities and gold token logs 
         topk: 20                                  # log probability of topk tokens
         hyperparameters:
             # for all methods

@@ -16,11 +16,8 @@ from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder, Crit
 from joeynmt.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
 from joeynmt.vocabulary import Vocabulary
 from torch.distributions import Categorical
-from joeynmt.batch import Batch
-from joeynmt.helpers import ConfigurationError, tensor_to_float, log_peakiness, join_strings
+from joeynmt.helpers import ConfigurationError, log_peakiness, join_strings
 from joeynmt.metrics import bleu
-import threading
-
 
 class RewardRegressionModel(nn.Module):
     def __init__(self, D_in, H, D_out):
@@ -78,19 +75,19 @@ class Model(nn.Module):
         self._loss_function = loss_function
 
     def reinforce(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
-            src_length: Tensor, temperature: float, topk: int, log_probabilities: False):
+            src_length: Tensor, temperature: float, topk: int, log_probabilities: False, pickle_logs:False):
 
         """ Computes forward pass for Policy Gradient aka REINFORCE
         
         Encodes source, then step by step decodes and samples token from output distribution.
-        Calls the loss function to compute the BLEU and loss  
+        Calls the loss function to compute the BLEU and loss
 
         :param max_output_length: max output length
         :param src: source input
         :param trg: target input
         :param src_mask: source mask
         :param src_length: length of source inputs
-        :param temperature: softmax temperature 
+        :param temperature: softmax temperature
         :param topk: consider top-k parameters for logging
         :param log_probabilities: log probabilities
         :return: loss, logs
@@ -112,9 +109,9 @@ class Model(nn.Module):
         attention_vectors = None
         finished = src_mask.new_zeros((batch_size)).byte()
         # decode tokens
-        for i in range(max_output_length):
+        for _ in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
-            logits, hidden, attention_scores, attention_vectors = self.decoder(
+            logits, hidden, _, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
                 encoder_hidden=encoder_hidden,
@@ -130,12 +127,14 @@ class Model(nn.Module):
             next_word = distrib.sample()
             log_probs += distrib.log_prob(next_word)
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
-            # check if previous symbol was <eos>
-            is_eos = torch.eq(next_word, self.eos_index)
-            finished += is_eos
-            # stop predicting if <eos> reached for all elements in batch
-            if (finished >= 1).sum() == batch_size:
-                break
+            # prevent early stopping in decoding when logging gold token
+            if not pickle_logs:
+                # check if previous symbol was <eos>
+                is_eos = torch.eq(next_word, self.eos_index)
+                finished += is_eos
+                # stop predicting if <eos> reached for all elements in batch
+                if (finished >= 1).sum() == batch_size:
+                    break
 
         ys = ys[:, 1:]
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
@@ -144,33 +143,33 @@ class Model(nn.Module):
                                                     cut_at_eos=True)
         predicted_strings = [join_strings(wordlist) for wordlist in predicted_output]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
-        # get reinforce loss 
+        # get reinforce loss
         batch_loss, rewards, old_bleus = self.loss_function(predicted_strings, gold_strings,  log_probs)
-        return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, 
+        return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions,
         trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
         if log_probabilities else (batch_loss, [])
 
     def mrt(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor, src_length: Tensor, 
-            temperature: float, samples: int, alpha: float, topk: int, add_gold=False, log_probabilities=False):
+            temperature: float, samples: int, alpha: float, topk: int, add_gold=False, log_probabilities=False, pickle_logs=False):
         """ Computes forward pass for MRT
         
         Encodes source, samples multiple output sequences.
-        Coputes rewards and MRT-loss 
+        Coputes rewards and MRT-loss
 
         :param max_output_length: max output length
         :param src: source input
         :param trg: target input
         :param src_mask: source mask
         :param src_length: length of source inputs
-        :param temperature: softmax temperature 
+        :param temperature: softmax temperature
         :param samples: number of sampled sentences for MRT
         :param alpha: smootheness of MRT
         :param topk: consider top-k parameters for logging
-        :param add_gold: add gold translation 
+        :param add_gold: add gold translation
         :param log_probabilities: log probabilities
         :return: loss, probability logs
         """
-        if add_gold: 
+        if add_gold:
             samples = samples+1
         encoder_output, encoder_hidden = self._encode(src, src_length,
                     src_mask)
@@ -186,7 +185,7 @@ class Model(nn.Module):
         encoder_output = encoder_output.repeat(samples,1,1)
         if hasattr(self.decoder,'_init_hidden'):
             hidden = self.decoder._init_hidden(encoder_hidden)
-            if len(hidden)==2: 
+            if len(hidden)==2:
                 hidden = (hidden[0].repeat(1,samples,1), hidden[1].repeat(1,samples,1)) 
             else: 
                 hidden = hidden.repeat(1,samples,1)
@@ -199,7 +198,7 @@ class Model(nn.Module):
         # decode tokens
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
-            logits, hidden, attention_scores, attention_vectors = self.decoder(
+            logits, hidden, _, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
                 encoder_hidden=encoder_hidden,
@@ -223,11 +222,14 @@ class Model(nn.Module):
                 next_word[-batch_size:] = ith_column
             ys = torch.cat([ys, next_word.unsqueeze(-1)], dim=1)
             total_prob += distrib.log_prob(next_word)
-            is_eos = torch.eq(next_word, self.eos_index)
-            finished += is_eos
-            # stop predicting if <eos> reached for all elements in batch
-            if (finished >= 1).sum() == batch_size*samples:
-                break
+            # prevent early stopping in decoding when logging gold token
+            if not pickle_logs:
+                # check if previous symbol was <eos>
+                is_eos = torch.eq(next_word, self.eos_index)
+                finished += is_eos
+                # stop predicting if <eos> reached for all elements in batch
+                if (finished >= 1).sum() == batch_size*samples:
+                    break
         ys = ys[:, 1:]
         all_sequences = torch.stack(torch.split(ys, batch_size))
         sentence_probabs= list(torch.split(total_prob, batch_size))    
@@ -254,19 +256,19 @@ class Model(nn.Module):
                 if log_probabilities else (batch_loss, [])
     
     def ned_a2c(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor,
-                        src_length: Tensor, temperature: float, critic: nn.Module, topk: int, log_probabilities=False):
+                        src_length: Tensor, temperature: float, critic: nn.Module, topk: int, log_probabilities=False, pickle_logs=False):
         """ Computes forward pass for NED-A2C
         
         Encodes source, step by step decodes and samples actor output.
         For each step decodes critic output given actor outputs as target
-        Computes actor loss and critic loss 
+        Computes actor loss and critic loss
 
         :param max_output_length: max output length
         :param src: source input
         :param trg: target input
         :param src_mask: source mask
         :param src_length: length of source inputs
-        :param temperature: softmax temperature 
+        :param temperature: softmax temperature
         :param critic: critic network
         :param topk: consider top-k parameters for logging
         :param log_probabilities: log probabilities
@@ -283,7 +285,7 @@ class Model(nn.Module):
             src_mask)
         hidden = (self.decoder._init_hidden(encoder_hidden)) \
             if hasattr(self.decoder,'_init_hidden') else (0,0)
-        attention_vectors= None 
+        attention_vectors = None
         ys = encoder_output.new_full([batch_size, 1], self.bos_index, dtype=torch.long)
         log_probs = 0
         distributions = []
@@ -303,7 +305,7 @@ class Model(nn.Module):
         # decode with actor
         for i in range(max_output_length):
             previous_words = ys[:, -1].view(-1, 1) if hasattr(self.decoder,'_init_hidden') else ys
-            logits, hidden, attention_scores, attention_vectors = self.decoder(
+            logits, hidden, _, attention_vectors = self.decoder(
                 trg_embed=self.trg_embed(previous_words),
                 encoder_output=encoder_output,
                 encoder_hidden=encoder_hidden,
@@ -340,12 +342,14 @@ class Model(nn.Module):
             critic_distrib =  Categorical(logits = critic_logit.view(-1, critic_logit.size(-1)))
             critic_sample = critic_distrib.sample()
             critic_sequence = torch.cat([critic_sequence, critic_sample.view(-1, 1)], -1)
-            # check if previous symbol was <eos>
-            is_eos = torch.eq(sampled_word, self.eos_index)
-            finished += is_eos
-            # stop predicting if <eos> reached for all elements in batch
-            if (finished >= 1).sum() == batch_size:
-                break
+            # prevent early stopping in decoding when logging gold token
+            if not pickle_logs:
+                # check if previous symbol was <eos>
+                is_eos = torch.eq(sampled_word, self.eos_index)
+                finished += is_eos
+                # stop predicting if <eos> reached for all elements in batch
+                if (finished >= 1).sum() == batch_size:
+                    break
         ys = ys[:, 1:]
         critic_sequence = critic_sequence[:, 1:]
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
@@ -363,13 +367,13 @@ class Model(nn.Module):
             bleu_tensor = bleu_tensor.cuda()
         critic_logits_tensor = torch.stack(critic_logits)
         critic_logits_tensor = critic_logits_tensor.squeeze()
-        if len(critic_logits_tensor.shape) == 1: 
+        if len(critic_logits_tensor.shape) == 1:
             critic_logits_tensor = critic_logits_tensor.unsqueeze(1)
         for dict_index in eos_dict:
             critic_logits_tensor[eos_dict[dict_index]:,dict_index] = 0
         critic_logits = torch.unbind(critic_logits_tensor)
         rewards = [(bleu_tensor-logit).squeeze(1) for logit in critic_logits]
-        # calculate critic loss 
+        # calculate critic loss
         critic_loss = torch.cat([torch.pow(bleu_tensor-logit, 2) for logit in critic_logits]).sum()
         # calculate actor loss
         batch_loss = 0
@@ -422,7 +426,8 @@ class Model(nn.Module):
             max_output_length=kwargs["max_output_length"],
             temperature=kwargs["temperature"],
             topk=kwargs['topk'],
-            log_probabilities=kwargs["log_probabilities"]
+            log_probabilities=kwargs["log_probabilities"],
+            pickle_logs=kwargs["pickle_logs"]
             )
             return_tuple = (loss, logging, None, None)
 
@@ -438,7 +443,8 @@ class Model(nn.Module):
             samples=kwargs["samples"],
             topk=kwargs['topk'],
             add_gold=kwargs["add_gold"],
-            log_probabilities=kwargs["log_probabilities"]
+            log_probabilities=kwargs["log_probabilities"],
+            pickle_logs=kwargs["pickle_logs"]
             )
             return_tuple = (loss, logging, None, None)
 
@@ -452,7 +458,8 @@ class Model(nn.Module):
             max_output_length=kwargs["max_output_length"],
             temperature=kwargs["temperature"],
             topk=kwargs['topk'],
-            log_probabilities=kwargs["log_probabilities"]
+            log_probabilities=kwargs["log_probabilities"],
+            pickle_logs=kwargs["pickle_logs"]
             )
             return_tuple = (loss, logging, None, None)
 

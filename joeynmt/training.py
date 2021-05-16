@@ -530,7 +530,8 @@ class TrainManager:
             samples=self.samples, alpha = self.alpha,
             add_gold=self.add_gold,
             topk=self.topk,
-            log_probabilities=self.log_probabilities)
+            log_probabilities=self.log_probabilities, 
+            pickle_logs=self.pickle_logs)
 
             if self.method == "a2c":
                 losses = batch_loss
