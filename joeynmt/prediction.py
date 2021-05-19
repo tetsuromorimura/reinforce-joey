@@ -222,7 +222,8 @@ def validate_on_data(model: Model, data: Dataset,
                     valid_hypotheses, valid_references)
         else:
             current_valid_score = -1
-    valid_data[0] = torch.mean(torch.stack(valid_data[0]))
+    if valid_data[0]!=[]:
+        valid_data[0] = torch.mean(torch.stack(valid_data[0]))
 
     return current_valid_score, valid_loss, valid_ppl, valid_sources, \
         valid_sources_raw, valid_references, valid_hypotheses, \
