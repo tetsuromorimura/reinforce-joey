@@ -36,8 +36,8 @@ Here a short explanation of the parameters.
   * add_gold: add gold/reference to sample space
   * samples: number of samples
   * alpha: mrt smoothness parameter 
-  Advantage Actor-Critic:  
-* critic_learning_rate: learning rate of critic network
+* Advantage Actor-Critic:  
+  * critic_learning_rate: learning rate of critic network
 
 ## Installation
 Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
