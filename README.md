@@ -1,5 +1,6 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
 This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
+This is also the code for "Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation", a more detailed description is coming soon. 
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
@@ -56,10 +57,24 @@ B. From source
 **Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 ## Acknowledgements
-Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who helped with implementation details and his knowledge about Reinforcement Learning
+Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who was a great help with implementation details and his knowledge about Reinforcement Learning
 
 ## Reference
-If you use Joey NMT in a publication or thesis, please cite the following [paper](https://arxiv.org/abs/1907.12484):
+```
+@inproceedings{kiegeland-kreutzer-2021-revisiting,
+    title = "Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation",
+    author = "Kiegeland, Samuel  and
+      Kreutzer, Julia",
+    booktitle = "Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    month = jun,
+    year = "2021",
+    address = "Online",
+    publisher = "Association for Computational Linguistics",
+    url = "https://www.aclweb.org/anthology/2021.naacl-main.133",
+    pages = "1673--1681",
+    abstract = "Policy gradient algorithms have found wide adoption in NLP, but have recently become subject to criticism, doubting their suitability for NMT. Choshen et al. (2020) identify multiple weaknesses and suspect that their success is determined by the shape of output distributions rather than the reward. In this paper, we revisit these claims and study them under a wider range of configurations. Our experiments on in-domain and cross-domain adaptation reveal the importance of exploration and reward scaling, and provide empirical counter-evidence to these claims.",
+}
+```
 
 ```
 @inproceedings{kreutzer-etal-2019-joey,
