@@ -370,7 +370,7 @@ def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output
                     if token in topk_probs_probs_index.tolist()[index]:
                         gold_token_ranks[index].append(topk_probs_probs_index.tolist()[index].index(token))
                     else:   
-                        gold_token_ranks[index].append(900)
+                        gold_token_ranks[index].append('k+')
         # get top ten probs
         highest_probs, highest_probs_index = probabilities.topk(10 ,largest=True, sorted=True)
         top_ten_probabilities = torch.sum(highest_probs, axis=1)
