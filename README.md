@@ -19,7 +19,7 @@ In general cold-starting a model with Reinforcement Learning does not work too w
 That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune it with RL. 
 
 ## Parameters
-The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce_joey/configs/small.yaml) for an example. 
+The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samukie/reinforce-joey/blob/reinforce-joey/blob/master/configs/small.yaml) for an example. 
 Here a short explanation of the parameters.  
 * All methods: 
   * temperature: Softmax temperature parameter. Decreasing results in a 'peakier' distribution and more exploitation while increasing leads to more exploration.  
