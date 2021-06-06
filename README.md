@@ -1,6 +1,6 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
-This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.
-This is also the code for "Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation", a more detailed description is coming soon. 
+This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.  
+This is also the code for [Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation](https://www.aclweb.org/anthology/2021.naacl-main.133/).  
 
 ## Implemented algorithms:  
 The forward pass of each method can be found here:  
@@ -12,11 +12,12 @@ The forward pass of each method can be found here:
 - Minimum Risk Training as in [Shen et al. (2016)](https://www.aclweb.org/anthology/P16-1159/)
 - Advantage Actor-Critic aka NED-A2C as in [Nguyen et al. (2017)](https://www.aclweb.org/anthology/D17-1153/)
 
-Policy Gradient and MRT can be used with both Transformers and RNNs but NED-A2C  is currently only implemented for RNNs. 
+Policy Gradient and MRT can be used with both Transformers and RNNs but NED-A2C is currently only implemented for RNNs. 
 
 ## How to use 
-In general cold-starting a model with Reinforcement Learning does not work too well as the methods rely on random sampling. 
-That means to effectively use the algorithms you have to pretrain a Transformer/RNN or download a [pretrained model](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and then fine-tune it with RL. 
+In general cold-starting a model with Reinforcement Learning is difficult as the methods rely on random sampling.  
+That means to effectively use the algorithms you have to pretrain a Transformer/RNN  and then fine-tune it with RL.  
+Pretrained models for Joey NMT are available [here](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and the models used in the paper can be downloaded [here](https://drive.google.com/drive/folders/1lptEFQeo6wIsNan-7MtKwk3WYRIyOAJd?usp=sharing). 
 
 ## Parameters
 The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samuki/reinforce-joey/blob/master/configs/small.yaml) for an example. 
@@ -39,27 +40,16 @@ Here a short explanation of the parameters.
 * Advantage Actor-Critic:  
   * critic_learning_rate: learning rate of critic network
 
-## Installation
-Joey NMT is built on [PyTorch](https://pytorch.org/) and [torchtext](https://github.com/pytorch/text) for Python >= 3.5.
+## Environment 
+The experiments were conducted on Tesla V100 GPUs using Python 3.8.5, PyTorch 1.7.0 and CUDA 11.  
+For a detailed explanation on how to install Joey NMT, please refer following [instructions](https://github.com/joeynmt/joeynmt#installation)
 
-A. [*Now also directly with pip!*](https://pypi.org/project/joeynmt/)
-  `pip install joeynmt`
-  
-B. From source
-  1. Clone this repository:
-  `git clone https://github.com/joeynmt/joeynmt.git`
-  2. Install joeynmt and it's requirements:
-  `cd joeynmt`
-  `pip3 install .` (you might want to add `--user` for a local installation).
-  3. Run the unit tests:
-  `python3 -m unittest`
-
-**Warning!** When running on *GPU* you need to manually install the suitable PyTorch version for your [CUDA](https://developer.nvidia.com/cuda-zone) version. This is described in the [PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 ## Acknowledgements
-Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who was a great help with implementation details and his knowledge about Reinforcement Learning
+Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who was a great help with implementation details and his knowledge about Reinforcement Learning.
 
 ## Reference
+Our paper at NAACL 2021: 
 ```
 @inproceedings{kiegeland-kreutzer-2021-revisiting,
     title = "Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation",
@@ -75,7 +65,7 @@ Thanks a lot to [Michael Staniek](https://github.com/MStaniek) who was a great h
     abstract = "Policy gradient algorithms have found wide adoption in NLP, but have recently become subject to criticism, doubting their suitability for NMT. Choshen et al. (2020) identify multiple weaknesses and suspect that their success is determined by the shape of output distributions rather than the reward. In this paper, we revisit these claims and study them under a wider range of configurations. Our experiments on in-domain and cross-domain adaptation reveal the importance of exploration and reward scaling, and provide empirical counter-evidence to these claims.",
 }
 ```
-
+Joey NMT: 
 ```
 @inproceedings{kreutzer-etal-2019-joey,
     title = "Joey {NMT}: A Minimalist {NMT} Toolkit for Novices",
