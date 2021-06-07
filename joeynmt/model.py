@@ -207,7 +207,7 @@ class Model(nn.Module):
                 trg_mask=trg_mask
             )
             logits = logits[:, -1]/temperature
-            distrib = Categorical(logits=logits) 
+            distrib = Categorical(logits=logits)
             distributions.append(distrib)
             next_word = distrib.sample()
             if add_gold: 
@@ -239,14 +239,15 @@ class Model(nn.Module):
             for predicted_output in predicted_outputs]
         gold_strings = [join_strings(wordlist) for wordlist in gold_output]
         all_gold_sentences = [gold_strings]*samples
+        # Simon's trick
         list_of_Qs = torch.softmax(torch.stack(sentence_probabs)*alpha, 0)
         # calculate loss
         batch_loss = 0
         for index, Q in enumerate(list_of_Qs):
             for prediction, gold_ref, Q_iter in zip(predicted_sentences[index], all_gold_sentences[index], Q):
-                # gradient ascent
                 batch_loss -= bleu([prediction], [gold_ref])*Q_iter
         rewards = [bleu([prediction], [gold_ref]) for prediction, gold_ref in zip(predicted_sentences[-1], all_gold_sentences[-1])]
+        # currently unused
         Qs_to_return = [q.tolist() for q in list_of_Qs]
         return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions, \
             trg, batch_size, max_output_length, gold_strings, predicted_sentences, \
