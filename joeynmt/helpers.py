@@ -13,7 +13,6 @@ import logging
 from logging import Logger
 from typing import Optional, List
 import numpy as np
-import pkg_resources
 
 import torch
 from torch import nn, Tensor

@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
+from torch.distributions import Categorical
 
 from joeynmt.initialization import initialize_model
 from joeynmt.embeddings import Embeddings
@@ -15,9 +16,9 @@ from joeynmt.encoders import Encoder, RecurrentEncoder, TransformerEncoder
 from joeynmt.decoders import Decoder, RecurrentDecoder, TransformerDecoder, CriticDecoder, CriticTransformerDecoder
 from joeynmt.constants import PAD_TOKEN, EOS_TOKEN, BOS_TOKEN
 from joeynmt.vocabulary import Vocabulary
-from torch.distributions import Categorical
 from joeynmt.helpers import ConfigurationError, log_peakiness, join_strings
 from joeynmt.metrics import bleu
+
 
 class RewardRegressionModel(nn.Module):
     def __init__(self, D_in, H, D_out):
@@ -63,8 +64,6 @@ class Model(nn.Module):
         self.pad_index = self.trg_vocab.stoi[PAD_TOKEN]
         self.eos_index = self.trg_vocab.stoi[EOS_TOKEN]
         self._loss_function = None # set by the TrainManager
-        self.bleu = []
-        self.counter = 0 
 
     @property
     def loss_function(self):
@@ -135,7 +134,6 @@ class Model(nn.Module):
                 # stop predicting if <eos> reached for all elements in batch
                 if (finished >= 1).sum() == batch_size:
                     break
-
         ys = ys[:, 1:]
         predicted_output = self.trg_vocab.arrays_to_sentences(arrays=ys,
                                                         cut_at_eos=True)
@@ -148,7 +146,7 @@ class Model(nn.Module):
         return (batch_loss, log_peakiness(self.pad_index, self.trg_vocab, topk, distributions,
         trg, batch_size, max_output_length, gold_strings, predicted_strings, rewards, old_bleus)) \
         if log_probabilities else (batch_loss, [])
-
+        
     def mrt(self, max_output_length, src: Tensor, trg: Tensor, src_mask: Tensor, src_length: Tensor, 
             temperature: float, samples: int, alpha: float, topk: int, add_gold=False, log_probabilities=False, pickle_logs=False):
         """ Computes forward pass for MRT
