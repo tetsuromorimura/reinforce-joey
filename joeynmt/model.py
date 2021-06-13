@@ -210,7 +210,7 @@ class Model(nn.Module):
             distrib = Categorical(logits=logits)
             distributions.append(distrib)
             next_word = distrib.sample()
-            if add_gold: 
+            if add_gold:
                 if i < trg.shape[1]:
                     ith_column = trg[:,i]
                 else:

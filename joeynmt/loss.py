@@ -7,6 +7,7 @@ import torch
 from torch import nn, Tensor
 from torch.autograd import Variable
 from joeynmt.metrics import bleu
+import numpy as np
 
 class XentLoss(nn.Module):
     """
@@ -86,7 +87,6 @@ class ReinforceLoss(nn.Module):
         self.baseline = baseline
         self.reward = reward
         self.bleu = []
-        self.counter = 0
         
     def forward(self, predicted, gold, log_probs):
         """
@@ -115,9 +115,8 @@ class ReinforceLoss(nn.Module):
         elif self.reward == "bleu":
             if self.baseline == "average_reward_baseline":
                 # global average
-                self.bleu.append(sum(bleu_scores))
-                self.counter += len(bleu_scores)
-                average_bleu = sum(self.bleu)/self.counter
+                self.bleu.extend(bleu_scores)
+                average_bleu = np.mean(self.bleu)
                 bleu_scores = [score - average_bleu for score in bleu_scores]
         # calculate PG loss with rewards and log probs
         loss = sum([-log_prob*bleu_score \
