@@ -1,6 +1,6 @@
 # &nbsp; ![Reinforce-Joey](reinforce_joey.png) Reinforce-Joey
 This is a fork of the awesome Joey NMT with implementations of several Reinforcement Learning algorithms, reward functions and baselines.  
-This is also the code for [Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation](https://www.aclweb.org/anthology/2021.naacl-main.133/).   
+This is also the code for [Revisiting the Weaknesses of Reinforcement Learning for Neural Machine Translation](https://arxiv.org/abs/2106.08942).   
 If you have any further questions about the paper or on how to use the code, feel free to send an email. 
 
 ## Implemented algorithms:  
