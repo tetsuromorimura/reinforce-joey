@@ -13,6 +13,7 @@ import logging
 from logging import Logger
 from typing import Optional, List
 import numpy as np
+import pkg_resources
 
 import torch
 from torch import nn, Tensor
@@ -79,8 +80,7 @@ def make_logger(log_dir: str = None, mode: str = "train") -> str:
     :return: joeynmt version number
     """
     logger = logging.getLogger("") # root logger
-    #version = pkg_resources.require("joeynmt")[0].version
-    version = 1.0 
+    version = pkg_resources.require("joeynmt")[0].version
     # add handlers only once.
     if len(logger.handlers) == 0:
         logger.setLevel(level=logging.DEBUG)
@@ -388,5 +388,3 @@ def log_peakiness(pad_index, trg_vocab, k, distribs, trg, batch_size, max_output
 
 def join_strings(wordlist):
     return " ".join(wordlist).replace("@@ ", "")
-
-
