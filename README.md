@@ -21,8 +21,8 @@ That means to effectively use the algorithms you have to pretrain a Transformer/
 Pretrained models for Joey NMT are available [here](https://github.com/joeynmt/joeynmt/blob/master/README.md#pre-trained-models) and the models used in the paper can be downloaded [here](https://drive.google.com/drive/folders/1lptEFQeo6wIsNan-7MtKwk3WYRIyOAJd?usp=sharing). 
 
 ## Parameters
-The method and hyperparameters are specified in the config, see [small.yaml](https://github.com/samuki/reinforce-joey/blob/master/configs/small.yaml) for an example. 
-Here a short explanation of the parameters.  
+The method and corresponding hyperparameters are specified in the config, examples for PG and MRT can be found in the [configs directory](https://github.com/samuki/reinforce-joey/blob/master/configs), e.g. [pg_cross_domain.yaml](https://github.com/samuki/reinforce-joey/blob/master/configs/pg_cross_domain.yaml), [mrt_cross_domain.yaml](https://github.com/samuki/reinforce-joey/blob/master/configs/mrt_cross_domain.yaml).  
+Here is a short explanation of the parameters:
 * All methods: 
   * temperature: Softmax temperature parameter. Decreasing results in a 'peakier' distribution and more exploitation while increasing leads to more exploration.  
 * Policy Gradient/Reinforce:   
