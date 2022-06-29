@@ -33,7 +33,7 @@ training:
     learning_rate_min: 0.00000005
     weight_decay: 0.0
     label_smoothing: 0.1
-    batch_size: 64
+    batch_size: 32
     eval_batch_size: 128
     batch_multiplier: 4
     batch_type: "token"
@@ -76,22 +76,22 @@ model:
         num_layers: 6
         num_heads: 4
         embeddings:
-            embedding_dim: 128
+            embedding_dim: 256
             scale: True
             dropout: 0.
         # typically ff_size = 4 x hidden_size
-        hidden_size: 128
-        ff_size: 512
+        hidden_size: 256
+        ff_size: 1024
         dropout: 0.3
     decoder:
         type: "transformer"
         num_layers: 6
         num_heads: 4
         embeddings:
-            embedding_dim: 128
+            embedding_dim: 256
             scale: True
             dropout: 0.
         # typically ff_size = 4 x hidden_size
-        hidden_size: 128
-        ff_size: 512
+        hidden_size: 256
+        ff_size: 1024
         dropout: 0.3
