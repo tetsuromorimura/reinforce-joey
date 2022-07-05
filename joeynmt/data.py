@@ -9,9 +9,8 @@ import os.path
 from typing import Optional
 import logging
 
-from torchtext.datasets import TranslationDataset
-from torchtext import data
-from torchtext.data import Dataset, Iterator, Field
+from torchtext.legacy.datasets import TranslationDataset
+from torchtext.legacy.data import Dataset, Iterator, Field, BucketIterator
 
 from joeynmt.constants import UNK_TOKEN, EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
 from joeynmt.vocabulary import build_vocab, Vocabulary
@@ -62,13 +61,13 @@ def load_data(data_cfg: dict, datasets: list = None)\
 
     tok_fun = lambda s: list(s) if level == "char" else s.split()
 
-    src_field = data.Field(init_token=None, eos_token=EOS_TOKEN,
+    src_field = Field(init_token=None, eos_token=EOS_TOKEN,
                            pad_token=PAD_TOKEN, tokenize=tok_fun,
                            batch_first=True, lower=lowercase,
                            unk_token=UNK_TOKEN,
                            include_lengths=True)
 
-    trg_field = data.Field(init_token=BOS_TOKEN, eos_token=EOS_TOKEN,
+    trg_field = Field(init_token=BOS_TOKEN, eos_token=EOS_TOKEN,
                            pad_token=PAD_TOKEN, tokenize=tok_fun,
                            unk_token=UNK_TOKEN,
                            batch_first=True, lower=lowercase,
@@ -182,14 +181,14 @@ def make_data_iter(dataset: Dataset,
 
     if train:
         # optionally shuffle and sort during training
-        data_iter = data.BucketIterator(
+        data_iter = BucketIterator(
             repeat=False, sort=False, dataset=dataset,
             batch_size=batch_size, batch_size_fn=batch_size_fn,
             train=True, sort_within_batch=True,
             sort_key=lambda x: len(x.src), shuffle=shuffle)
     else:
         # don't sort/shuffle for validation/inference
-        data_iter = data.BucketIterator(
+        data_iter = BucketIterator(
             repeat=False, dataset=dataset,
             batch_size=batch_size, batch_size_fn=batch_size_fn,
             train=False, sort=False)
