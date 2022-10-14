@@ -10,7 +10,7 @@ from typing import Optional
 import logging
 
 from torchtext.legacy.datasets import TranslationDataset
-from torchtext.legacy.data import Dataset, Iterator, Field, BucketIterator
+from torchtext.legacy.data import Dataset, Iterator, Field, BucketIterator, Example
 
 from joeynmt.constants import UNK_TOKEN, EOS_TOKEN, BOS_TOKEN, PAD_TOKEN
 from joeynmt.vocabulary import build_vocab, Vocabulary
@@ -225,8 +225,7 @@ class MonoDataset(Dataset):
         for src_line in src_file:
             src_line = src_line.strip()
             if src_line != '':
-                examples.append(data.Example.fromlist(
-                    [src_line], fields))
+                examples.append(Example.fromlist([src_line], fields))
 
         src_file.close()
 

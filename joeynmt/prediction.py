@@ -122,7 +122,7 @@ def validate_on_data(model: Model, data: Dataset,
 
             # run as during training with teacher forcing
             if compute_loss and batch.trg is not None:
-                if reinforcement_learning:  
+                if reinforcement_learning:
                     batch_loss, distribution, _, _ = model(
                         return_type=method, max_output_length=max_output_length,
                         src=batch.src, trg=batch.trg,
@@ -130,17 +130,17 @@ def validate_on_data(model: Model, data: Dataset,
                         src_length=batch.src_length, trg_mask=batch.trg_mask,
                         temperature=temperature,
                         topk=topk,
-                        samples=samples, 
-                        alpha=alpha, 
+                        samples=samples,
+                        alpha=alpha,
                         add_gold=add_gold,
-                        critic=critic, 
-                        log_probabilities=log_probabilities, 
+                        critic=critic,
+                        log_probabilities=log_probabilities,
                         pickle_logs=pickle_logs)
-                        
+
                     if method == "a2c":
                         losses = batch_loss
-                        batch_loss = losses[0] 
-                        critic_loss = losses[1] 
+                        batch_loss = losses[0]
+                        critic_loss = losses[1]
                 else:
                     batch_loss, distribution, _, _ = model(
                         return_type="loss", src=batch.src, trg=batch.trg,
@@ -439,12 +439,14 @@ def translate(cfg_file: str, ckpt: str, output_path: str = None) -> None:
 
         return test_data
 
+    cfg = load_config(cfg_file)
+
     def _translate_data(test_data):
         """ Translates given dataset, using parameters from outer scope. """
         # pylint: disable=unused-variable
         score, loss, ppl, sources, sources_raw, references, hypotheses, \
-        hypotheses_raw, attention_scores = validate_on_data(
-            model, data=test_data, batch_size=batch_size,
+        hypotheses_raw, attention_scores, valid_data = validate_on_data(
+            model, data=test_data, batch_size=batch_size, config=cfg,
             batch_type=batch_type, level=level,
             max_output_length=max_output_length, eval_metric="",
             use_cuda=use_cuda, compute_loss=False, beam_size=beam_size,
@@ -452,7 +454,6 @@ def translate(cfg_file: str, ckpt: str, output_path: str = None) -> None:
             bpe_type=bpe_type, sacrebleu=sacrebleu, n_gpu=n_gpu)
         return hypotheses
 
-    cfg = load_config(cfg_file)
     model_dir = cfg["training"]["model_dir"]
 
     _ = make_logger(model_dir, mode="translate")
