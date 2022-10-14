@@ -8,3 +8,7 @@ models
 reverse_model
 .vscode/
 scripts/*
+venv/
+pretrained_iwslt14/
+pretrained_wmt15/
+test/data/
