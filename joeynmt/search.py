@@ -808,11 +808,11 @@ def vanilla_beam_search(model: Model, size: int,
             if len(non_finished) == 0:
                 break
             # remove finished batches for the next step
-            topk_log_probs = topk_log_probs.index_select(0, non_finished)
-            batch_index = batch_index.index_select(0, non_finished)
+            # topk_log_probs = topk_log_probs.index_select(0, non_finished)
+            # batch_index = batch_index.index_select(0, non_finished)
             # batch_offset = batch_offset.index_select(0, non_finished)
-            alive_seq = predictions.index_select(0, non_finished) \
-                .view(-1, alive_seq.size(-1))
+            # alive_seq = predictions.index_select(0, non_finished) \
+            #     .view(-1, alive_seq.size(-1))
 
         # reorder indices, outputs and masks
         select_indices = batch_index.view(-1)
@@ -823,14 +823,12 @@ def vanilla_beam_search(model: Model, size: int,
             att_vectors = att_vectors.index_select(0, select_indices)
 
     predictions = alive_seq.view(-1, size, alive_seq.size(-1))
-    for b in batch_offset:
+    for i in range(predictions.size(0)):
+        b = batch_offset[i]
         for j in range(predictions.size(1)):
-            if (predictions[0, j, 1:] == eos_index).nonzero(
-                    as_tuple=False).numel() < 2:
-                # ignore start_token
-                hypotheses[b].append(
-                    (topk_scores[0, j], predictions[0, j, 1:])
-                )
+            hypotheses[b].append(
+                (topk_scores[i, j], predictions[i, j, 1:])
+            )
         best_hyp = sorted(
             hypotheses[b], key=lambda x: x[0], reverse=True)
         for n, (score, pred) in enumerate(best_hyp):
@@ -890,7 +888,7 @@ def run_batch(model: Model, batch: Batch, max_output_length: int,
             encoder_hidden=encoder_hidden)
         # batch, time, max_src_length
     else:  # beam search
-        stacked_output, stacked_attention_scores = fcfs_beam_search(
+        stacked_output, stacked_attention_scores = vanilla_beam_search(
             model=model,
             size=beam_size,
             encoder_output=encoder_output,
