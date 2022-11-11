@@ -795,24 +795,6 @@ def vanilla_beam_search(model: Model, size: int,
         is_finished = topk_ids.eq(eos_index)
         if step + 1 == max_output_length:
             is_finished.fill_(True)
-        # end condition is whether the top beam is finished
-        end_condition = is_finished[:, 0].eq(True)
-
-        # save finished hypotheses
-        if is_finished.any():
-            predictions = alive_seq.view(-1, size, alive_seq.size(-1))
-            non_finished = end_condition.eq(False).nonzero(
-                as_tuple=False).view(-1)
-            # if all sentences are translated, no need to go further
-            # pylint: disable=len-as-condition
-            if len(non_finished) == 0:
-                break
-            # remove finished batches for the next step
-            # topk_log_probs = topk_log_probs.index_select(0, non_finished)
-            # batch_index = batch_index.index_select(0, non_finished)
-            # batch_offset = batch_offset.index_select(0, non_finished)
-            # alive_seq = predictions.index_select(0, non_finished) \
-            #     .view(-1, alive_seq.size(-1))
 
         # reorder indices, outputs and masks
         select_indices = batch_index.view(-1)
