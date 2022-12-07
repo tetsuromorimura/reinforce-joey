@@ -17,6 +17,9 @@ def main():
     ap.add_argument("--ckpt", type=str,
                     help="checkpoint for prediction")
 
+    ap.add_argument("--alpha", type=float,
+                    help="beam alpha")
+
     ap.add_argument("--output_path", type=str,
                     help="path for saving translation output")
 
@@ -28,10 +31,10 @@ def main():
     if args.mode == "train":
         train(cfg_file=args.config_path)
     elif args.mode == "test":
-        test(cfg_file=args.config_path, ckpt=args.ckpt,
+        test(cfg_file=args.config_path, ckpt=args.ckpt, alpha=args.alpha,
              output_path=args.output_path, save_attention=args.save_attention)
     elif args.mode == "translate":
-        translate(cfg_file=args.config_path, ckpt=args.ckpt,
+        translate(cfg_file=args.config_path, ckpt=args.ckpt, alpha=args.alpha,
                   output_path=args.output_path)
     else:
         raise ValueError("Unknown mode")

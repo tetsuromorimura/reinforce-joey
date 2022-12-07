@@ -568,6 +568,10 @@ def fcfs_beam_search(model: Model, size: int,
         alive_seq = torch.cat(
             [alive_seq.index_select(0, select_indices),
              topk_ids.view(-1, 1)], -1)  # batch_size*k x hyp_len
+        # log.info(f'{select_indices=}')
+        # log.info(f'{topk_scores=}')
+        # log.info(f'{topk_ids=}')
+        # log.info(f'\n{alive_seq}')
 
         is_finished = topk_ids.eq(eos_index)
         if step + 1 == max_output_length:
@@ -585,6 +589,7 @@ def fcfs_beam_search(model: Model, size: int,
                 finished_hyp = is_finished[i].nonzero(as_tuple=False).view(-1)
                 # store finished hypotheses for this batch
                 for j in finished_hyp:
+                    # log.debug(finished_hyp)
                     # Check if the prediction has more than one EOS.
                     # If it has more than one EOS, it means that the
                     # prediction should have already been added to
@@ -592,8 +597,9 @@ def fcfs_beam_search(model: Model, size: int,
                     if (predictions[i, j, 1:] == eos_index).nonzero(
                             as_tuple=False).numel() < 2:
                         # ignore start_token
+                        # log.debug((topk_log_probs[i, j], predictions[i, j, 1:]))
                         hypotheses[b].append(
-                            (topk_scores[i, j], predictions[i, j, 1:])
+                            (topk_log_probs[i, j], predictions[i, j, 1:])
                         )
                 # if the batch reached the end, save the n_best hypotheses
                 if end_condition[i]:
@@ -616,6 +622,7 @@ def fcfs_beam_search(model: Model, size: int,
             batch_offset = batch_offset.index_select(0, non_finished)
             alive_seq = predictions.index_select(0, non_finished) \
                 .view(-1, alive_seq.size(-1))
+        # print()
 
         # reorder indices, outputs and masks
         select_indices = batch_index.view(-1)
@@ -639,7 +646,11 @@ def fcfs_beam_search(model: Model, size: int,
     final_outputs = pad_and_stack_hyps([r[0].cpu().numpy() for r in
                                         results["predictions"]],
                                        pad_value=pad_index)
-
+    # log.debug(final_outputs)
+    # with open(f'result{alpha}.txt', 'a') as f:
+    #     log.debug(f'output to result{alpha}.txt')
+    #     f.write(np.array2string(final_outputs))
+    #     f.write('\n')
     return final_outputs, None
 
 
@@ -881,7 +892,7 @@ def run_batch(model: Model, batch: Batch, max_output_length: int,
             encoder_hidden=encoder_hidden)
         # batch, time, max_src_length
     else:  # beam search
-        stacked_output, stacked_attention_scores = vanilla_beam_search(
+        stacked_output, stacked_attention_scores = fcfs_beam_search(
             model=model,
             size=beam_size,
             encoder_output=encoder_output,
