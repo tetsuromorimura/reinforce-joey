@@ -365,7 +365,7 @@ def test(cfg_file,
         logger.info("Decoding on %s set (%s)...", data_set_name, dataset_file)
 
         #pylint: disable=unused-variable
-        print(f'alpha = {alpha}')
+        logger.info(f'Length penalty alpha = {alpha}')
         score, loss, ppl, sources, sources_raw, references, hypotheses, \
         hypotheses_raw, attention_scores,valid_data = validate_on_data(
             model, data=data_set, batch_size=batch_size, config=cfg,
