@@ -569,11 +569,11 @@ def fcfs_beam_search(model: Model, size: int,
             [alive_seq.index_select(0, select_indices),
              topk_ids.view(-1, 1)], -1)  # batch_size*k x hyp_len
 
-        is_finished = topk_ids.eq(eos_index)
+        is_finished = topk_ids.eq(eos_index) | is_finished | topk_scores.eq(-np.inf)
         if step + 1 == max_output_length:
             is_finished.fill_(True)
         # end condition is whether the top beam is finished
-        end_condition = is_finished[:, 0].eq(True)
+        end_condition = is_finished.all(-1)
 
         # save finished hypotheses
         if is_finished.any():
@@ -792,11 +792,11 @@ def vanilla_beam_search(model: Model, size: int,
             [alive_seq.index_select(0, select_indices),
              topk_ids.view(-1, 1)], -1)  # batch_size*k x hyp_len
 
-        is_finished = topk_ids.eq(eos_index)
+        is_finished = topk_ids.eq(eos_index) | is_finished | topk_scores.eq(-np.inf)
         if step + 1 == max_output_length:
             is_finished.fill_(True)
         # end condition is whether the top beam is finished
-        end_condition = is_finished[:, 0].eq(True)
+        end_condition = is_finished.all(-1)
 
         # save finished hypotheses
         if is_finished.any():
