@@ -501,6 +501,12 @@ def fcfs_beam_search(model: Model, size: int,
         "gold_score": [0] * batch_size,
     }
 
+    # indicator if the generation is finished
+    # `is_finished` shape: (batch_size, beam_size)
+    is_finished = torch.full((batch_size, size),
+                             False,
+                             dtype=torch.bool,
+                             device=device)
     for step in range(max_output_length):
         # This decides which part of the predicted sentence we feed to the
         # decoder to make the next prediction.
@@ -616,6 +622,7 @@ def fcfs_beam_search(model: Model, size: int,
             batch_offset = batch_offset.index_select(0, non_finished)
             alive_seq = predictions.index_select(0, non_finished) \
                 .view(-1, alive_seq.size(-1))
+            is_finished = is_finished.index_select(0, non_finished)
 
         # reorder indices, outputs and masks
         select_indices = batch_index.view(-1)
@@ -724,6 +731,12 @@ def vanilla_beam_search(model: Model, size: int,
         "gold_score": [0] * batch_size,
     }
 
+    # indicator if the generation is finished
+    # `is_finished` shape: (batch_size, beam_size)
+    is_finished = torch.full((batch_size, size),
+                             False,
+                             dtype=torch.bool,
+                             device=device)
     for step in range(max_output_length):
         # This decides which part of the predicted sentence we feed to the
         # decoder to make the next prediction.
@@ -800,6 +813,22 @@ def vanilla_beam_search(model: Model, size: int,
 
         # save finished hypotheses
         if is_finished.any():
+            predictions = alive_seq.view(-1, size, alive_seq.size(-1))
+            for i in range(is_finished.size(0)):
+                b = batch_offset[i]
+                if end_condition[i]:
+                    is_finished[i].fill_(1)
+                finished_hyp = is_finished[i].nonzero(as_tuple=False).view(-1)
+                # store finished hypotheses for this batch
+                for j in finished_hyp:
+                    # Check if the prediction has more than one EOS.
+                    # If it has more than one EOS, it means that the
+                    # prediction should have already been added to
+                    # the hypotheses, so you don't have to add them again.
+                    if (predictions[i, j, 1:] == eos_index).nonzero(
+                            as_tuple=False).numel() < 2:
+                        # ignore start_token
+                        log.debug((topk_scores[i, j], predictions[i, j, 1:]))
             non_finished = end_condition.eq(False).nonzero(
                 as_tuple=False).view(-1)
             # if all sentences are translated, no need to go further
@@ -881,7 +910,7 @@ def run_batch(model: Model, batch: Batch, max_output_length: int,
             encoder_hidden=encoder_hidden)
         # batch, time, max_src_length
     else:  # beam search
-        stacked_output, stacked_attention_scores = fcfs_beam_search(
+        stacked_output, stacked_attention_scores = vanilla_beam_search(
             model=model,
             size=beam_size,
             encoder_output=encoder_output,
