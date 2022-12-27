@@ -813,22 +813,6 @@ def vanilla_beam_search(model: Model, size: int,
 
         # save finished hypotheses
         if is_finished.any():
-            predictions = alive_seq.view(-1, size, alive_seq.size(-1))
-            for i in range(is_finished.size(0)):
-                b = batch_offset[i]
-                if end_condition[i]:
-                    is_finished[i].fill_(1)
-                finished_hyp = is_finished[i].nonzero(as_tuple=False).view(-1)
-                # store finished hypotheses for this batch
-                for j in finished_hyp:
-                    # Check if the prediction has more than one EOS.
-                    # If it has more than one EOS, it means that the
-                    # prediction should have already been added to
-                    # the hypotheses, so you don't have to add them again.
-                    if (predictions[i, j, 1:] == eos_index).nonzero(
-                            as_tuple=False).numel() < 2:
-                        # ignore start_token
-                        log.debug((topk_scores[i, j], predictions[i, j, 1:]))
             non_finished = end_condition.eq(False).nonzero(
                 as_tuple=False).view(-1)
             # if all sentences are translated, no need to go further
